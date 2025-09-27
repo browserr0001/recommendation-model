@@ -218,6 +218,7 @@ class ContentBasedRecommender:
             user_data = {k: v for k, v in user_data.items() if k in ['age', 'occupation', 'gender']}
             user_df = pd.DataFrame([user_data])
         else:
+            print("Creating generic user profile with default values due to missing or invalid user data")
             user_df = pd.DataFrame([{
                 'age': user_data.get('age', 25), 
                 'occupation': user_data.get('occupation', 'other'),
@@ -413,6 +414,110 @@ def calculate_accuracy(user_id, recommendations, test_ratings):
 
     return accuracy
 
+def calculate_recommendation_metrics(user_id, recommendations, test_ratings, train_movies):
+    """
+    Calculate multiple recommendation quality metrics for a user
+    
+    Parameters:
+    user_id: User ID to evaluate
+    recommendations: List of recommended movie_ids
+    test_ratings: DataFrame with test ratings/watches data
+    
+    Returns:
+    dict: Dictionary of metrics including hit_rate, precision@k, recall, ndcg, and diversity
+    """
+    metrics = {}
+    
+    # If user not in test set, return zeros for all metrics
+    if user_id not in test_ratings['user_id'].values:
+        return {
+            'hit_rate': 0.0,
+            'precision': 0.0, 
+            'recall': 0.0,
+            'diversity': 0.0
+        }
+    
+    # Get movies the user interacted with in the test set
+    user_test_movies = test_ratings[test_ratings['user_id'] == user_id]['movie_id'].values
+    
+    if len(user_test_movies) == 0:
+        return {
+            'hit_rate': 0.0, 
+            'precision': 0.0, 
+            'recall': 0.0,
+            'diversity': 0.0
+        }
+    
+    # Calculate hit rate (original accuracy metric)
+    hits = np.isin(recommendations, user_test_movies).sum()
+    metrics['hit_rate'] = hits / len(recommendations)
+    
+    # Calculate precision
+    metrics['precision'] = hits / len(recommendations)
+    
+    # Calculate recall
+    metrics['recall'] = hits / len(user_test_movies)
+    
+    # Calculate recommendation diversity (using genres if available)
+    if train_movies is not None:
+        # Get the genres for recommended movies
+        rec_genres = set()
+        for movie_id in recommendations:
+            movie_data = train_movies[train_movies['movie_id'] == movie_id]
+            if not movie_data.empty and movie_data['genres'].iloc[0] is not None:
+                genres = movie_data['genres'].iloc[0]
+                if isinstance(genres, list):
+                    rec_genres.update(genres)
+        
+        # Diversity is the number of unique genres divided by the average number of genres per movie
+        avg_genres_per_movie = len(rec_genres) / len(recommendations) if len(recommendations) > 0 else 0
+        metrics['diversity'] = len(rec_genres) / (avg_genres_per_movie * 10) if avg_genres_per_movie > 0 else 0
+    else:
+        metrics['diversity'] = 0.0
+    
+
+    return metrics
+
+def calculate_overall_metrics(recommendations_list, train_movies):
+    """
+    Calculate the overall metrics for the recommendation system.
+
+    Parameters:
+    recommendations_list: List of lists of recommended movie_ids for multiple users
+    all_movie_ids: Set or list of all movie_ids in the dataset
+
+    Returns:
+    dict: Dictionary containing overall metrics including coverage and diversity
+    """
+    # Calculate coverage
+    total_num_movies = len(train_movies['movie_id'].unique())
+    recommended_movies = set()
+    for recs in recommendations_list:
+        recommended_movies.update(recs)
+
+    coverage = len(recommended_movies) / total_num_movies if total_num_movies > 0 else 0.0
+    # Calculate diversity
+    all_genres = set()
+    recommended_genres = set()
+    for recs in recommendations_list:
+        for movie_id in recs:
+            movie_data = train_movies[train_movies['movie_id'] == movie_id]
+            if not movie_data.empty and movie_data['genres'].iloc[0] is not None:
+                genres = movie_data['genres'].iloc[0]
+                if isinstance(genres, list):
+                    recommended_genres.update(genres)
+    for genres in train_movies['genres'].dropna():
+        if isinstance(genres, list):
+            all_genres.update(genres)
+
+    diversity = len(recommended_genres) / len(all_genres) if len(all_genres) > 0 else 0.0
+
+    return {
+        'coverage': coverage,
+        'diversity': diversity
+    }
+ 
+
 def get_user_metadata(user_id, link):
     """
     Make get request to the link following structure: http://128.2.220.241:8080/user/23469
@@ -424,12 +529,33 @@ def get_user_metadata(user_id, link):
         return None
 
 
-if __name__ == "__main__":
-    movies, users, ratings, watches = read_data('data/')
+def test_single_user(content_recommender):
+    # Single user tests
+    # Test the recommender with an existing user
+    existing_user_id = ratings['user_id'].iloc[0]  # Get a random user from the dataset
+    recommendations, inference_time = content_recommender.get_recommendations(existing_user_id, top_n=20)
+    print(f"\nRecommendations for existing user {existing_user_id}:")
+    print(recommendations)
+    print(f"Inference Time (existing user): {inference_time:.4f} seconds")
+
+    # Test the recommender with a new user (cold start)
+    # Create a new user with metadata
+    new_user = {
+        'age': 30,
+        'occupation': 'engineer',
+        'gender': 'F'
+    }
+    # Assign a new user_id that doesn't exist in the dataset
+    new_user_id = 999999
+    cold_start_recommendations, cold_inference_time = content_recommender.get_recommendations(new_user_id, user_data= new_user, top_n=20)
+    print(f"\nRecommendations for new user (cold start):")
+    print(cold_start_recommendations)
+    print(f"Inference Time (cold start): {cold_inference_time:.4f} seconds")
+
+def run_train_test(movies, users, ratings, watches, train=False):
     train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
     pickle.dump(test_ratings, open('model/results/content_based_test_ratings.pkl', 'wb'))
     
-    train = False
     if train: 
         content_recommender = ContentBasedRecommender()
         # Fit the model on the training data
@@ -439,11 +565,11 @@ if __name__ == "__main__":
     else:
         content_recommender = pickle.load(open('model/results/content_based_model.pkl', 'rb'))
 
-
     # Evaluate the model on the test data
     test_results = []
     i = 1
     new_user_count = 0
+    all_recommendations = []
     for user_id in test_ratings['user_id'].unique():
         print(f"Evaluating recommendations for user {user_id} {i}/{len(test_ratings['user_id'].unique())}", end='\r')
         trained_users = content_recommender.users_df['user_id'].values
@@ -451,8 +577,12 @@ if __name__ == "__main__":
         if user_id not in trained_users:
             new_user_count += 1
             user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
+
         recs, inf_time = content_recommender.get_recommendations(user_id, top_n=20, user_data=user_meta)
-        test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'accuracy': float(calculate_accuracy(user_id, recs, test_ratings))})
+        all_recommendations.append(recs)
+        # Calculate metrics
+        # test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'metrics': calculate_recommendation_metrics(user_id, recs, test_ratings, train_movies)})
+        test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'user_type': 'existing' if user_id in trained_users else 'new'})
         i += 1
         # Save intermediate results
         if i % 1000 == 0:
@@ -462,30 +592,33 @@ if __name__ == "__main__":
     # Save final results
     json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
 
-    # # Single user tests
-    # # Test the recommender with an existing user
-    # existing_user_id = ratings['user_id'].iloc[0]  # Get a random user from the dataset
-    # recommendations, inference_time = content_recommender.get_recommendations(existing_user_id, top_n=20)
-    # print(f"\nRecommendations for existing user {existing_user_id}:")
-    # print(recommendations)
-
-    # # Test the recommender with a new user (cold start)
-    # # Create a new user with metadata
-    # new_user = {
-    #     'age': 30,
-    #     'occupation': 'engineer',
-    #     'gender': 'F'
-    # }
-    # # Assign a new user_id that doesn't exist in the dataset
-    # new_user_id = 999999
-    # cold_start_recommendations, cold_inference_time = content_recommender.get_recommendations(new_user_id, user_data= new_user, top_n=20)
-    # print(f"\nRecommendations for new user (cold start):")
-    # print(cold_start_recommendations)
+    # Calculate overall metrics
+    overall_metrics = calculate_overall_metrics(all_recommendations, train_movies)
+    print(f"\nOverall Metrics:")
+    print(f"Coverage: {overall_metrics['coverage']*100:.4f}%")
+    print(f"Diversity: {overall_metrics['diversity']*100:.4f}%")
+    print(f"New users in test set: {new_user_count}/{len(test_ratings['user_id'].unique())}")    
 
     # Print model metrics
     model_size_bytes = content_recommender.get_model_size()
     print(f"\nModel Metrics:")
     print(f"Training Time: {content_recommender.training_time:.2f} seconds")
-    # print(f"Inference Time (existing user): {inference_time:.4f} seconds")
-    # print(f"Inference Time (cold start): {cold_inference_time:.4f} seconds")
     print(f"Model Size: {model_size_bytes / (1024*1024):.2f} MB")
+
+
+def train_model_full_data(movies, users, ratings, watches):
+    content_recommender = ContentBasedRecommender()
+    content_recommender.fit(movies, users, ratings, watches)
+    pickle.dump(content_recommender, open('model/results/content_based_model_full.pkl', 'wb'))
+    print("Model trained on full data and saved as 'model/results/content_based_model_full.pkl'")
+
+     # Print model metrics
+    model_size_bytes = content_recommender.get_model_size()
+    print(f"\nModel Metrics:")
+    print(f"Full Training Time: {content_recommender.training_time:.2f} seconds")
+    print(f"Full Model Size: {model_size_bytes / (1024*1024):.2f} MB")
+
+if __name__ == "__main__":
+    movies, users, ratings, watches = read_data('data/')
+    # run_train_test(movies, users, ratings, watches, train=False)
+    train_model_full_data(movies, users, ratings, watches)
