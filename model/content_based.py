@@ -5,6 +5,9 @@ from sklearn.pipeline import Pipeline
 import time
 import pandas as pd
 from read_data import read_data
+import pickle
+import json
+import requests
 
 class ContentBasedRecommender:
     def __init__(self):
@@ -212,6 +215,7 @@ class ContentBasedRecommender:
         """
         # Convert user data to DataFrame
         if isinstance(user_data, dict):
+            user_data = {k: v for k, v in user_data.items() if k in ['age', 'occupation', 'gender']}
             user_df = pd.DataFrame([user_data])
         else:
             user_df = pd.DataFrame([{
@@ -244,7 +248,7 @@ class ContentBasedRecommender:
         
         return cold_start_profile
     
-    def get_recommendations(self, user_id, top_n=10, exclude_seen=True):
+    def get_recommendations(self, user_id, user_data=None, top_n=10, exclude_seen=True):
         """
         Get movie recommendations for a user
         
@@ -261,15 +265,11 @@ class ContentBasedRecommender:
         # Check if this is a known or new user
         if user_id in self.user_profiles:
             user_profile = self.user_profiles[user_id]
-            print(f"Generating recommendations for existing user {user_id}")
         else:
             # Cold start: get user metadata if available
-            user_data = self.users_df[self.users_df['user_id'] == user_id]
-            
-            if len(user_data) > 0:
-                user_meta = user_data.iloc[0].to_dict()
-                user_profile = self.create_user_profile_cold_start(user_meta)
-                print(f"Generating recommendations for cold start user {user_id} with metadata")
+            # user_data = self.users_df[self.users_df['user_id'] == user_id]
+            if user_data:
+                user_profile = self.create_user_profile_cold_start(user_data)
             else:
                 # No metadata for this user, use default profile
                 print(f"No metadata for user {user_id}. Using generic profile.")
@@ -295,9 +295,9 @@ class ContentBasedRecommender:
         
         t_end = time.time()
         inference_time = t_end - t_start
-        print(f"Recommendations generated in {inference_time:.4f} seconds")
-        
-        return recommendations, inference_time
+        # print(f"Recommendations generated in {inference_time:.4f} seconds")
+
+        return recommendations['movie_id'].values.tolist(), inference_time
 
     def get_model_size(self):
         """
@@ -323,35 +323,169 @@ class ContentBasedRecommender:
         return size
 
 
+def train_test_split(ratings_df, movies_df, users_df, watches_df, test_size=0.2, mid_rating_watch_over=0.5):
+    """
+    Split the ratings data and watches data into training and test sets based on timestamp.
+    For movies and users, include only those present in the training set.
+    Parameters:
+        ratings_df: DataFrame with user ratings
+        movies_df: DataFrame with movie metadata
+        users_df: DataFrame with user metadata
+        watches_df: DataFrame with user watch history
+        test_size: Proportion of data to use for testing
+    Returns:
+        train_ratings: Training set of ratings
+        test_ratings: Test set of ratings
+        train_movies: Movies present in the training set
+        train_users: Users present in the training set
+        train_watches: Training set of watches
+        test_watches: Test set of watches
+    
+    """
+    # Get the split timestamp based on percentage of all timestamps
+    ratings_df = ratings_df.sort_values('timestamp').reset_index(drop=True)
+    n_total = len(ratings_df)
+    n_test = int(n_total * test_size)
+    n_train = n_total - n_test
+    train_ratings = ratings_df.iloc[:n_train].reset_index(drop=True)
+    test_ratings = ratings_df.iloc[n_train:].reset_index(drop=True)
+
+    split_timestamp = ratings_df.iloc[n_train]['timestamp']
+    print(f"Train-test Split timestamp: {split_timestamp}")
+
+    # starting_timestamp = min(ratings_df['timestamp'])
+    # ending_timestamp = max(ratings_df['timestamp'])
+    # split_timestamp = starting_timestamp + (ending_timestamp - starting_timestamp) * (1 - test_size)
+
+    # # Split ratings data
+    # train_ratings = ratings_df[ratings_df['timestamp'] <= split_timestamp].reset_index(drop=True)
+    # test_ratings = ratings_df[ratings_df['timestamp'] > split_timestamp].reset_index(drop=True)
+
+    # Get users and movies in the training set
+    train_user_ids = train_ratings['user_id'].unique()
+    train_movie_ids = train_ratings['movie_id'].unique()
+
+    train_users = users_df[users_df['user_id'].isin(train_user_ids)].reset_index(drop=True)
+    train_movies = movies_df[movies_df['movie_id'].isin(train_movie_ids)].reset_index(drop=True)
+    
+    train_watches = watches_df[watches_df['timestamp_start'] <= split_timestamp].reset_index(drop=True)
+    test_watches = watches_df[watches_df['timestamp_start'] > split_timestamp].reset_index(drop=True)
+
+    # # Combine movies and test_watches to find the movies that users watched over mid_rating_watch_over
+    # percent_watched = pd.merge(test_watches[['movie_id', 'user_id', 'timestamp_end', 'minutes_watched']], movies_df[['movie_id', 'runtime']], on='movie_id')
+    # percent_watched.rename(columns={'timestamp_end': 'timestamp'}, inplace=True)
+    # percent_watched = percent_watched[percent_watched['minutes_watched']/percent_watched['runtime']>=mid_rating_watch_over]
+    # percent_watched['rating'] = 3
+
+    # # Concat test_ratings with percent_watched to ensure all relevant movies are included
+    # watch_subset = percent_watched[['timestamp', 'user_id', 'movie_id', 'rating']]
+    # overall_test_ratings = pd.concat([watch_subset, test_ratings])
+    # overall_test_ratings = overall_test_ratings.sort_values('timestamp')
+    # test_ratings = overall_test_ratings.groupby(['user_id', 'movie_id']).last().reset_index()
+
+
+    # Concat watches with test_ratings to get unique user and movies combinations
+    # Include user movie pair as long as user watched the movie after the recommendation split time
+    test_watch_subset = test_watches[['timestamp_start', 'user_id', 'movie_id']]
+    test_ratings = pd.concat([test_watch_subset, test_ratings]).groupby(['user_id', 'movie_id']).last().reset_index()
+    
+    print(f"Train ratings: {train_ratings.shape}, Test ratings: {test_ratings.shape}")
+    print(f"Train users: {train_users.shape}, Train movies: {train_movies.shape}")
+    print(f"Test users: {test_ratings['user_id'].nunique()}")
+
+    return train_ratings, test_ratings, train_movies, train_users, train_watches
+
+def calculate_accuracy(user_id, recommendations, test_ratings):
+    """
+    Calculate the percentage of recommended movies shows in test_ratings for the user_id.
+    """
+    if user_id not in test_ratings['user_id'].values:
+        return 0.0
+    
+    user_test_movies = test_ratings[test_ratings['user_id'] == user_id]['movie_id'].values
+
+    
+    if len(user_test_movies) == 0:
+        return 0.0
+    
+    hits = np.isin(recommendations, user_test_movies).sum()
+    accuracy = hits / len(recommendations)
+
+    return accuracy
+
+def get_user_metadata(user_id, link):
+    """
+    Make get request to the link following structure: http://128.2.220.241:8080/user/23469
+    """
+    response = requests.get(f"{link}/{user_id}")
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return None
+
 
 if __name__ == "__main__":
-    movies, users, ratings, watches = read_data()
-    content_recommender = ContentBasedRecommender()
-    content_recommender.fit(movies, users, ratings, watches)
+    movies, users, ratings, watches = read_data('data/')
+    train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
+    pickle.dump(test_ratings, open('model/results/content_based_test_ratings.pkl', 'wb'))
+    
+    train = False
+    if train: 
+        content_recommender = ContentBasedRecommender()
+        # Fit the model on the training data
+        content_recommender.fit(train_movies, train_users, train_ratings, train_watches)
+        pickle.dump(content_recommender, open('model/results/content_based_model.pkl', 'wb'))
 
-    # Test the recommender with an existing user
-    existing_user_id = ratings['user_id'].iloc[0]  # Get a random user from the dataset
-    recommendations, inference_time = content_recommender.get_recommendations(existing_user_id, top_n=20)
-    print(f"\nRecommendations for existing user {existing_user_id}:")
-    print(recommendations)
+    else:
+        content_recommender = pickle.load(open('model/results/content_based_model.pkl', 'rb'))
 
-    # Test the recommender with a new user (cold start)
-    # Create a new user with metadata
-    new_user = {
-        'age': 30,
-        'occupation': 'engineer',
-        'gender': 'F'
-    }
-    # Assign a new user_id that doesn't exist in the dataset
-    new_user_id = 999999
-    cold_start_recommendations, cold_inference_time = content_recommender.get_recommendations(new_user_id, top_n=20)
-    print(f"\nRecommendations for new user (cold start):")
-    print(cold_start_recommendations)
+
+    # Evaluate the model on the test data
+    test_results = []
+    i = 1
+    new_user_count = 0
+    for user_id in test_ratings['user_id'].unique():
+        print(f"Evaluating recommendations for user {user_id} {i}/{len(test_ratings['user_id'].unique())}", end='\r')
+        trained_users = content_recommender.users_df['user_id'].values
+        user_meta = None
+        if user_id not in trained_users:
+            new_user_count += 1
+            user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
+        recs, inf_time = content_recommender.get_recommendations(user_id, top_n=20, user_data=user_meta)
+        test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'accuracy': float(calculate_accuracy(user_id, recs, test_ratings))})
+        i += 1
+        # Save intermediate results
+        if i % 1000 == 0:
+            print(f"Processed {i} users...")
+            json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
+
+    # Save final results
+    json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
+
+    # # Single user tests
+    # # Test the recommender with an existing user
+    # existing_user_id = ratings['user_id'].iloc[0]  # Get a random user from the dataset
+    # recommendations, inference_time = content_recommender.get_recommendations(existing_user_id, top_n=20)
+    # print(f"\nRecommendations for existing user {existing_user_id}:")
+    # print(recommendations)
+
+    # # Test the recommender with a new user (cold start)
+    # # Create a new user with metadata
+    # new_user = {
+    #     'age': 30,
+    #     'occupation': 'engineer',
+    #     'gender': 'F'
+    # }
+    # # Assign a new user_id that doesn't exist in the dataset
+    # new_user_id = 999999
+    # cold_start_recommendations, cold_inference_time = content_recommender.get_recommendations(new_user_id, user_data= new_user, top_n=20)
+    # print(f"\nRecommendations for new user (cold start):")
+    # print(cold_start_recommendations)
 
     # Print model metrics
     model_size_bytes = content_recommender.get_model_size()
     print(f"\nModel Metrics:")
     print(f"Training Time: {content_recommender.training_time:.2f} seconds")
-    print(f"Inference Time (existing user): {inference_time:.4f} seconds")
-    print(f"Inference Time (cold start): {cold_inference_time:.4f} seconds")
+    # print(f"Inference Time (existing user): {inference_time:.4f} seconds")
+    # print(f"Inference Time (cold start): {cold_inference_time:.4f} seconds")
     print(f"Model Size: {model_size_bytes / (1024*1024):.2f} MB")

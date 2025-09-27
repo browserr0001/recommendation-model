@@ -1,11 +1,11 @@
 import pyarrow.parquet as pq
 import pandas as pd
 
-def read_data():
-    movies = pq.read_table('data/meta/movies.parquet').to_pandas()
-    users = pq.read_table('data/meta/users.parquet').to_pandas()
-    ratings = pq.read_table('data/ratings/ratings.parquet').to_pandas()
-    watches = pq.read_table('data/watches/watches.parquet').to_pandas()
+def read_data(path_prefix='data/'):
+    movies = pq.read_table(f'{path_prefix}meta/movies.parquet').to_pandas()
+    users = pq.read_table(f'{path_prefix}meta/users.parquet').to_pandas()
+    ratings = pq.read_table(f'{path_prefix}ratings/ratings.parquet').to_pandas()
+    watches = pq.read_table(f'{path_prefix}watches/watches.parquet').to_pandas()
 
     selected_movie_cols = ['id', 'title', 'adult', 'budget', 'genres', 'original_language', 'overview', 'popularity', 'production_companies', 'production_countries', 'release_date', 'revenue', 'runtime', 'vote_average', 'vote_count']
     movies = movies[selected_movie_cols]
@@ -33,7 +33,7 @@ def read_data():
 
 
 if __name__ == "__main__":
-    movies, users, ratings, watches = read_data()
+    movies, users, ratings, watches = read_data_sample()
     print(movies.shape)
     print(users.shape)
     print(ratings.shape)
