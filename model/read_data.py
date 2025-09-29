@@ -3,7 +3,7 @@ import pandas as pd
 
 def read_data(path_prefix='data/'):
     movies = pq.read_table(f'{path_prefix}meta/movies.parquet').to_pandas()
-    users = pq.read_table(f'{path_prefix}meta/users.parquet').to_pandas()
+    users = pq.read_table(f'{path_prefix}meta/users_new.parquet').to_pandas()
     ratings = pq.read_table(f'{path_prefix}ratings/ratings.parquet').to_pandas()
     watches = pq.read_table(f'{path_prefix}watches/watches.parquet').to_pandas()
 
@@ -33,7 +33,7 @@ def read_data(path_prefix='data/'):
 
 
 if __name__ == "__main__":
-    movies, users, ratings, watches = read_data_sample()
+    movies, users, ratings, watches = read_data('data_sample/')
     print(movies.shape)
     print(users.shape)
     print(ratings.shape)

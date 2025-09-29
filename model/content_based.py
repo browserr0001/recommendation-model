@@ -8,6 +8,7 @@ from read_data import read_data
 import pickle
 import json
 import requests
+import tqdm
 
 class ContentBasedRecommender:
     def __init__(self):
@@ -20,6 +21,168 @@ class ContentBasedRecommender:
         self.movie_encoder = None
         self.cold_start_user_pipeline = None
         
+    def create_movie_profiles(self, movies):
+        # Build movie profiles
+        print("Building movie profiles...")
+        n_movies = len(movies)
+        
+        # Numeric features to include
+        numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
+                           'vote_average', 'vote_count']
+        
+        # Initialize feature arrays
+        numeric_feature_matrix = np.zeros((n_movies, len(numeric_features)))
+        
+        # Extract and normalize numeric features
+        for i, feature in enumerate(numeric_features):
+            feature_values = movies[feature].values
+            feature_values = np.nan_to_num(feature_values)
+            # Normalize if not all zeros to avoid division by zero
+            if np.sum(np.abs(feature_values)) > 0:
+                feature_values = feature_values / np.max(np.abs(feature_values))
+                
+            numeric_feature_matrix[:, i] = feature_values
+        
+        # Process categorical features
+        
+        # Adult feature (boolean)
+        adult_feature = np.zeros((n_movies, 1))
+        adult_feature[:, 0] = movies['adult'].fillna(False).astype(int).values
+        
+        # Original language (one-hot encoding)
+        languages = movies['original_language'].fillna('unknown').values
+        unique_languages = np.unique(languages)
+        language_features = np.zeros((n_movies, len(unique_languages)))
+        lang_to_idx = {lang: i for i, lang in enumerate(unique_languages)}
+        
+        for i, lang in enumerate(languages):
+            language_features[i, lang_to_idx[lang]] = 1
+        
+        # Release date - extract year and normalize
+        release_years = movies['release_year'].fillna(0).values.reshape(-1, 1)
+        
+        # Normalize years
+        if np.max(release_years) > np.min(release_years):
+            release_years = (release_years - np.min(release_years)) / (np.max(release_years) - np.min(release_years))
+        
+        # Extract genres as a list of features
+        genre_lists = movies['genres'].apply(lambda x: [] if x is None else x)
+        
+        # Create one-hot encoding for genres
+        all_genres = set()
+        for genres in genre_lists:
+            if isinstance(genres, list):
+                all_genres.update(genres)
+                
+        # Create genre features matrix
+        n_genres = len(all_genres)
+        genre_features = np.zeros((n_movies, n_genres))
+        
+        # Map genre names to column indices
+        genre_to_idx = {genre: i for i, genre in enumerate(all_genres)}
+        
+        # Fill the genre features matrix
+        for i, genres in enumerate(genre_lists):
+            if isinstance(genres, list):
+                for genre in genres:
+                    if genre in genre_to_idx:
+                        genre_features[i, genre_to_idx[genre]] = 1
+
+        # Process text features - convert overview to a simple length feature
+        overview_length = np.zeros((n_movies, 1))
+
+        for i, overview in enumerate(movies['overview'].fillna('')):
+            if isinstance(overview, str):
+                overview_length[i, 0] = min(1.0, len(overview) / 1000)  # Normalize to [0,1]
+        
+        # Process production companies and countries - use count as a feature
+        company_counts = np.zeros((n_movies, 1))
+        country_counts = np.zeros((n_movies, 1))
+
+        for i, companies in enumerate(movies['production_companies']):
+            if isinstance(companies, list):
+                company_counts[i, 0] = min(1.0, len(companies) / 10)  # Normalize to [0,1]
+
+        for i, countries in enumerate(movies['production_countries']):
+            if isinstance(countries, list):
+                country_counts[i, 0] = min(1.0, len(countries) / 5)  # Normalize to [0,1]
+        
+        # Concatenate all feature matrices
+        movie_features = np.hstack([
+            genre_features,
+            numeric_feature_matrix,
+            adult_feature,
+            language_features,
+            release_years,
+            overview_length,
+            company_counts,
+            country_counts
+        ])
+        return movie_features
+
+
+    def create_user_profiles(self, users, movie_features):
+        # Build user profiles
+        print("Building user profiles...")
+        
+        # Create user metadata encoder for cold start
+        user_features = ['age', 'occupation', 'gender']
+        self.cold_start_user_pipeline = Pipeline([
+            ('encoder', OneHotEncoder(sparse_output=False, handle_unknown='ignore')),
+            ('scaler', StandardScaler())
+        ])
+        
+        # Extract user features for training the cold start encoder
+        user_meta_features = users[user_features]
+        self.cold_start_user_pipeline.fit(user_meta_features)
+        
+        # For existing users, create profiles based on their ratings
+        user_profiles = {}
+        groups = self.ratings_combined.groupby('user_id')
+        # Create user profile for all user_id in users dataframe, call create_user_profile_cold_start if user not seen in self.ratings_combined
+        new_users = []
+        for user_id in tqdm.tqdm(users['user_id'].values):
+            if user_id not in self.ratings_combined['user_id'].values:
+                new_users.append(user_id)
+            else:
+                group = groups.get_group(user_id)
+                # Get the movies this user has rated
+                rated_movie_indices = []
+                movie_ids = []
+                for movie_id in group['movie_id']:
+                    movie_idx = self.movies_df[self.movies_df['movie_id'] == movie_id].index
+                    if len(movie_idx) > 0:
+                        rated_movie_indices.append(movie_idx[0])
+                        movie_ids.append(movie_id)
+                
+                if rated_movie_indices:
+                    # Get the genres of movies this user has rated
+                    user_prefs = np.zeros(movie_features.shape[1])
+                    ratings = np.array(group['rating'])
+                    
+                    # Weight the genres by the ratings
+                    for i, idx in enumerate(rated_movie_indices):
+                        user_prefs += ratings[i] * self.movie_profiles[idx]
+                        
+                    # Normalize
+                    if np.sum(user_prefs) > 0:
+                        user_prefs = user_prefs / np.sum(user_prefs)
+                        
+                    user_profiles[user_id] = user_prefs
+
+        self.user_profiles = user_profiles
+        print(f"Created profiles for {len(user_profiles)} existing users. Now processing {len(new_users)} new users.")
+
+        for user_id in tqdm.tqdm(new_users):
+            user_data = users[users['user_id'] == user_id]
+            if not user_data.empty:
+                user_profile = self.create_user_profile_cold_start(user_data.iloc[0].to_dict())
+                user_profiles[user_id] = user_profile
+            else:
+                print(f"No metadata for user {user_id}. Using generic profile.")
+                user_profiles[user_id] = np.ones(movie_features.shape[1]) / movie_features.shape[1]  
+        return user_profiles
+
     def fit(self, movies_df, users_df, ratings_df, watches_df, mid_rating_watch_over=0.5):
         """
         Train the content-based recommender
@@ -47,155 +210,13 @@ class ContentBasedRecommender:
         overall_ratings = overall_ratings.sort_values('timestamp')
         self.ratings_combined = overall_ratings.groupby(['user_id', 'movie_id']).last().reset_index()
 
-
-        # Build movie profiles
-        print("Building movie profiles...")
-        n_movies = len(self.movies_df)
-        
-        
-        
-        # Numeric features to include
-        numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
-                           'vote_average', 'vote_count']
-        
-        # Initialize feature arrays
-        numeric_feature_matrix = np.zeros((n_movies, len(numeric_features)))
-        
-        # Extract and normalize numeric features
-        for i, feature in enumerate(numeric_features):
-            feature_values = self.movies_df[feature].values
-            feature_values = np.nan_to_num(feature_values)
-            # Normalize if not all zeros to avoid division by zero
-            if np.sum(np.abs(feature_values)) > 0:
-                feature_values = feature_values / np.max(np.abs(feature_values))
-                
-            numeric_feature_matrix[:, i] = feature_values
-        
-        # Process categorical features
-        
-        # Adult feature (boolean)
-        adult_feature = np.zeros((n_movies, 1))
-        adult_feature[:, 0] = self.movies_df['adult'].fillna(False).astype(int).values
-        
-        # Original language (one-hot encoding)
-        languages = self.movies_df['original_language'].fillna('unknown').values
-        unique_languages = np.unique(languages)
-        language_features = np.zeros((n_movies, len(unique_languages)))
-        lang_to_idx = {lang: i for i, lang in enumerate(unique_languages)}
-        
-        for i, lang in enumerate(languages):
-            language_features[i, lang_to_idx[lang]] = 1
-        
-        # Release date - extract year and normalize
-        release_years = self.movies_df['release_year'].fillna(0).values.reshape(-1, 1)
-        
-        # Normalize years
-        if np.max(release_years) > np.min(release_years):
-            release_years = (release_years - np.min(release_years)) / (np.max(release_years) - np.min(release_years))
-        
-        # Extract genres as a list of features
-        genre_lists = self.movies_df['genres'].apply(lambda x: [] if x is None else x)
-        
-        # Create one-hot encoding for genres
-        all_genres = set()
-        for genres in genre_lists:
-            if isinstance(genres, list):
-                all_genres.update(genres)
-                
-        # Create genre features matrix
-        n_genres = len(all_genres)
-        genre_features = np.zeros((n_movies, n_genres))
-        
-        # Map genre names to column indices
-        genre_to_idx = {genre: i for i, genre in enumerate(all_genres)}
-        
-        # Fill the genre features matrix
-        for i, genres in enumerate(genre_lists):
-            if isinstance(genres, list):
-                for genre in genres:
-                    if genre in genre_to_idx:
-                        genre_features[i, genre_to_idx[genre]] = 1
-
-        # Process text features - convert overview to a simple length feature
-        overview_length = np.zeros((n_movies, 1))
-        
-        for i, overview in enumerate(self.movies_df['overview'].fillna('')):
-            if isinstance(overview, str):
-                overview_length[i, 0] = min(1.0, len(overview) / 1000)  # Normalize to [0,1]
-        
-        # Process production companies and countries - use count as a feature
-        company_counts = np.zeros((n_movies, 1))
-        country_counts = np.zeros((n_movies, 1))
-        
-        for i, companies in enumerate(self.movies_df['production_companies']):
-            if isinstance(companies, list):
-                company_counts[i, 0] = min(1.0, len(companies) / 10)  # Normalize to [0,1]
-                
-        for i, countries in enumerate(self.movies_df['production_countries']):
-            if isinstance(countries, list):
-                country_counts[i, 0] = min(1.0, len(countries) / 5)  # Normalize to [0,1]
-        
-        # Concatenate all feature matrices
-        movie_features = np.hstack([
-            genre_features,
-            numeric_feature_matrix,
-            adult_feature,
-            language_features,
-            release_years,
-            overview_length,
-            company_counts,
-            country_counts
-        ])
+        movie_features = self.create_movie_profiles(self.movies_df)
                         
         # Store the movie profiles
         self.movie_profiles = movie_features
         self.num_total_features = movie_features.shape[1]
         
-        # Build user profiles
-        print("Building user profiles...")
-        
-        # Create user metadata encoder for cold start
-        user_features = ['age', 'occupation', 'gender']
-        self.cold_start_user_pipeline = Pipeline([
-            ('encoder', OneHotEncoder(sparse_output=False, handle_unknown='ignore')),
-            ('scaler', StandardScaler())
-        ])
-        
-        # Extract user features for training the cold start encoder
-        user_meta_features = self.users_df[user_features]
-        self.cold_start_user_pipeline.fit(user_meta_features)
-        
-        # For existing users, create profiles based on their ratings
-        user_profiles = {}
-        
-        # Use the combined ratings dataset that includes both explicit ratings and watch behavior
-        for user_id, group in self.ratings_combined.groupby('user_id'):
-            if user_id in self.users_df['user_id'].values:
-                # Get the movies this user has rated
-                rated_movie_indices = []
-                movie_ids = []
-                for movie_id in group['movie_id']:
-                    movie_idx = self.movies_df[self.movies_df['movie_id'] == movie_id].index
-                    if len(movie_idx) > 0:
-                        rated_movie_indices.append(movie_idx[0])
-                        movie_ids.append(movie_id)
-                
-                if rated_movie_indices:
-                    # Get the genres of movies this user has rated
-                    user_genre_prefs = np.zeros(movie_features.shape[1])
-                    ratings = np.array(group['rating'])
-                    
-                    # Weight the genres by the ratings
-                    for i, idx in enumerate(rated_movie_indices):
-                        user_genre_prefs += ratings[i] * self.movie_profiles[idx]
-                        
-                    # Normalize
-                    if np.sum(user_genre_prefs) > 0:
-                        user_genre_prefs = user_genre_prefs / np.sum(user_genre_prefs)
-                        
-                    user_profiles[user_id] = user_genre_prefs
-        
-        self.user_profiles = user_profiles
+        self.user_profiles = self.create_user_profiles(self.users_df, movie_features)
         
         t_end = time.time()
         self.training_time = t_end - t_start
@@ -275,10 +296,10 @@ class ContentBasedRecommender:
                 # No metadata for this user, use default profile
                 print(f"No metadata for user {user_id}. Using generic profile.")
                 user_profile = np.ones(self.num_total_features) / self.num_total_features  # Equal preference for all features
-        
+        print(f"After User profile creation Time Elapsed: {time.time() - t_start:.4f} seconds")
         # Calculate similarity to each movie
         similarity_scores = cosine_similarity([user_profile], self.movie_profiles)[0]
-        
+        print(f"After Calculating Similarity Time Elapsed: {time.time() - t_start:.4f} seconds")
         # Create a DataFrame with movie_ids and similarity scores
         recommendations = pd.DataFrame({
             'movie_id': self.movies_df['movie_id'],
@@ -414,6 +435,78 @@ def calculate_accuracy(user_id, recommendations, test_ratings):
 
     return accuracy
 
+
+def calculate_cosine_similarity(model, recommendations, test_movies):
+    # get the average vector of the recommended movies from the model
+    if len(recommendations) == 0 or test_movies is None or len(test_movies) == 0:
+        return 0.0
+    rec_indices = [model.movies_df[model.movies_df['movie_id'] == movie_id].index[0] for movie_id in recommendations if movie_id in model.movies_df['movie_id'].values]
+    if len(rec_indices) == 0:
+        return 0.0
+    rec_vectors = model.movie_profiles[rec_indices]
+    avg_rec_vector = np.mean(rec_vectors, axis=0).reshape(1, -1)
+    # get the average vector of the test movies
+
+    return 0.0
+
+
+
+def calculate_diversity(rec_ids, movies_df):
+    genres_seen = set()
+    for mid in rec_ids:
+        row = movies_df[movies_df["movie_id"] == mid]
+        if not row.empty:
+            genres = row.iloc[0]["genres"]
+            if isinstance(genres, str):
+                for g in genres.split():
+                    genres_seen.add(g)
+    return len(genres_seen) / (len(rec_ids) + 1e-9)
+
+def calculate_coverage(all_rec_lists, all_movie_ids):
+    recommended_movies = set()
+    for recs in all_rec_lists:
+        recommended_movies.update(recs)
+    return len(recommended_movies) / len(all_movie_ids)
+
+
+def evaluate_precision(content_recommender:ContentBasedRecommender, users_subset, test_df, k=20):
+
+    metrics = {"precision": [], "recall": [], "ndcg": [], "accuracy": [], "diversity": []}
+    all_rec_lists = []
+
+    for user_id in users_subset:
+        test_watched = test_df[test_df["user_id"] == user_id]["movie_id"].tolist()
+        test_relevant = test_df["movie_id"].tolist()
+
+        if not test_watched:
+            continue
+
+        user_meta = None
+        if user_id not in content_recommender.user_profiles:
+            user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
+
+        recs, _ = content_recommender.get_recommendations(user_id, user_data=user_meta, top_n=k, exclude_seen=True)
+        rec_ids = recs["movie_id"].tolist()
+        all_rec_lists.append(rec_ids)
+
+        hits_relevant = len(set(rec_ids) & set(test_relevant))
+        hits_watched = len(set(rec_ids) & set(test_watched))
+
+        metrics["precision"].append(hits_relevant / k)
+        metrics["recall"].append(hits_relevant / len(test_relevant) if test_relevant else 0)
+
+        dcg = sum([1/np.log2(i+2) for i, mid in enumerate(rec_ids) if mid in test_relevant])
+        idcg = sum([1/np.log2(i+2) for i in range(min(len(test_relevant), k))])
+        metrics["ndcg"].append(dcg/idcg if idcg > 0 else 0)
+
+        metrics["accuracy"].append(hits_watched / k)
+        metrics["diversity"].append(calculate_diversity(rec_ids, movies))
+
+    results = {m: float(np.mean(v)) for m, v in metrics.items() if v}
+    results["coverage"] = calculate_coverage(all_rec_lists, movies["movie_id"].unique())
+    return results
+
+
 def calculate_recommendation_metrics(user_id, recommendations, test_ratings, train_movies):
     """
     Calculate multiple recommendation quality metrics for a user
@@ -529,26 +622,13 @@ def get_user_metadata(user_id, link):
         return None
 
 
-def test_single_user(content_recommender):
-    # Single user tests
-    # Test the recommender with an existing user
-    existing_user_id = ratings['user_id'].iloc[0]  # Get a random user from the dataset
-    recommendations, inference_time = content_recommender.get_recommendations(existing_user_id, top_n=20)
-    print(f"\nRecommendations for existing user {existing_user_id}:")
-    print(recommendations)
-    print(f"Inference Time (existing user): {inference_time:.4f} seconds")
+def test_single_user(content_recommender:ContentBasedRecommender, new_user_id:int):
+    user_meta = None
+    if new_user_id not in content_recommender.user_profiles:
+        user_meta = get_user_metadata(new_user_id, "http://128.2.220.241:8080/user")
 
-    # Test the recommender with a new user (cold start)
-    # Create a new user with metadata
-    new_user = {
-        'age': 30,
-        'occupation': 'engineer',
-        'gender': 'F'
-    }
-    # Assign a new user_id that doesn't exist in the dataset
-    new_user_id = 999999
-    cold_start_recommendations, cold_inference_time = content_recommender.get_recommendations(new_user_id, user_data= new_user, top_n=20)
-    print(f"\nRecommendations for new user (cold start):")
+    cold_start_recommendations, cold_inference_time = content_recommender.get_recommendations(new_user_id, user_data=user_meta, top_n=20)
+    print(f"\nRecommendations for new user {new_user_id}(cold start):")
     print(cold_start_recommendations)
     print(f"Inference Time (cold start): {cold_inference_time:.4f} seconds")
 
@@ -572,9 +652,9 @@ def run_train_test(movies, users, ratings, watches, train=False):
     all_recommendations = []
     for user_id in test_ratings['user_id'].unique():
         print(f"Evaluating recommendations for user {user_id} {i}/{len(test_ratings['user_id'].unique())}", end='\r')
-        trained_users = content_recommender.users_df['user_id'].values
+
         user_meta = None
-        if user_id not in trained_users:
+        if user_id not in content_recommender.user_profiles:
             new_user_count += 1
             user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
 
@@ -620,5 +700,9 @@ def train_model_full_data(movies, users, ratings, watches):
 
 if __name__ == "__main__":
     movies, users, ratings, watches = read_data('data/')
+    # model = pickle.load(open('model/results/content_based_model_full.pkl', 'rb'))
+    # train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
+    # evaluate_precision(model, test_ratings, )
     # run_train_test(movies, users, ratings, watches, train=False)
     train_model_full_data(movies, users, ratings, watches)
+    test_single_user(pickle.load(open('model/results/content_based_model_full.pkl', 'rb')), 46052)
