@@ -32,3 +32,20 @@ Recommendations for new user 100000(cold start):
 ['whatever+1998', 'american+history+x+1998', '12+angry+men+1957', 'good+will+hunting+1997', 'the+color+purple+1985', 'philadelphia+1993', 'scent+of+a+woman+1992', 'an+adventure+in+space+and+time+2013', 'raging+bull+1980', 'the+twilight+of+the+golds+1996', 'sue+1997', 'the+joker+is+wild+1957', 'in+the+name+of+the+father+1993', 'there+will+be+blood+2007', 'awakenings+1990', 'the+diary+of+anne+frank+2009', 'apollo+13+1995', 'the+good+lie+2014', 'short+term+12+2013', 'lawn+dogs+1997']
 Inference Time (cold start): 0.1316 seconds
 ```
+
+
+
+For traing test:
+```
+Train users: (30072, 4), Train movies: (14606, 16)
+Test users: 2011
+Total test relevant movies: 2061
+100%|█████████████████████████████████████████| 2011/2011 [01:31<00:00, 22.01it/s]
+
+Evaluation Results on Test Set:
+{'precision': 0.1420934858279463, 'recall': 0.0013788790473357236, 'ndcg': 0.1518558923618042, 'accuracy': 9.945300845350573e-05, 'diversity': 0.14982595722771508, 'coverage': 0.38454057254006513}
+
+Model Metrics:
+Training Time: 302.01 seconds
+Model Size: 87.34 MB
+```

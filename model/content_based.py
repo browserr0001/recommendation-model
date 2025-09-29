@@ -346,7 +346,7 @@ class ContentBasedRecommender:
         
         # Check if this is a known or new user
         if user_id in self.user_profiles:
-            print("Known user - using existing profile")
+            # print("Known user - using existing profile")
             user_profile = self.user_profiles[user_id]
         elif user_id in set(self.all_users['user_id'].values):
             row_idx = self.all_users[self.all_users['user_id'] == user_id].index[0]
@@ -365,10 +365,10 @@ class ContentBasedRecommender:
                 print(f"No metadata for user {user_id}. Using generic profile.")
                 user_profile = np.ones(self.num_total_features) / self.num_total_features  # Equal preference for all features
 
-        print(f"After User profile creation Time Elapsed: {time.time() - t_start:.4f} seconds")
+        # print(f"After User profile creation Time Elapsed: {time.time() - t_start:.4f} seconds")
         # Calculate similarity to each movie
         similarity_scores = cosine_similarity([user_profile], self.movie_profiles)[0]
-        print(f"After Calculating Similarity Time Elapsed: {time.time() - t_start:.4f} seconds")
+        # print(f"After Calculating Similarity Time Elapsed: {time.time() - t_start:.4f} seconds")
         # Create a DataFrame with movie_ids and similarity scores
         recommendations = pd.DataFrame({
             'movie_id': self.movies_df['movie_id'],
@@ -444,14 +444,6 @@ def train_test_split(ratings_df, movies_df, users_df, watches_df, test_size=0.2,
     split_timestamp = ratings_df.iloc[n_train]['timestamp']
     print(f"Train-test Split timestamp: {split_timestamp}")
 
-    # starting_timestamp = min(ratings_df['timestamp'])
-    # ending_timestamp = max(ratings_df['timestamp'])
-    # split_timestamp = starting_timestamp + (ending_timestamp - starting_timestamp) * (1 - test_size)
-
-    # # Split ratings data
-    # train_ratings = ratings_df[ratings_df['timestamp'] <= split_timestamp].reset_index(drop=True)
-    # test_ratings = ratings_df[ratings_df['timestamp'] > split_timestamp].reset_index(drop=True)
-
     # Get users and movies in the training set
     train_user_ids = train_ratings['user_id'].unique()
     train_movie_ids = train_ratings['movie_id'].unique()
@@ -462,27 +454,11 @@ def train_test_split(ratings_df, movies_df, users_df, watches_df, test_size=0.2,
     train_watches = watches_df[watches_df['timestamp_start'] <= split_timestamp].reset_index(drop=True)
     test_watches = watches_df[watches_df['timestamp_start'] > split_timestamp].reset_index(drop=True)
 
-    # # Combine movies and test_watches to find the movies that users watched over mid_rating_watch_over
-    # percent_watched = pd.merge(test_watches[['movie_id', 'user_id', 'timestamp_end', 'minutes_watched']], movies_df[['movie_id', 'runtime']], on='movie_id')
-    # percent_watched.rename(columns={'timestamp_end': 'timestamp'}, inplace=True)
-    # percent_watched = percent_watched[percent_watched['minutes_watched']/percent_watched['runtime']>=mid_rating_watch_over]
-    # percent_watched['rating'] = 3
-
-    # # Concat test_ratings with percent_watched to ensure all relevant movies are included
-    # watch_subset = percent_watched[['timestamp', 'user_id', 'movie_id', 'rating']]
-    # overall_test_ratings = pd.concat([watch_subset, test_ratings])
-    # overall_test_ratings = overall_test_ratings.sort_values('timestamp')
-    # test_ratings = overall_test_ratings.groupby(['user_id', 'movie_id']).last().reset_index()
-
-
-    # Concat watches with test_ratings to get unique user and movies combinations
-    # Include user movie pair as long as user watched the movie after the recommendation split time
     test_watch_subset = test_watches[['timestamp_start', 'user_id', 'movie_id']]
     test_ratings = pd.concat([test_watch_subset, test_ratings]).groupby(['user_id', 'movie_id']).last().reset_index()
     
     print(f"Train ratings: {train_ratings.shape}, Test ratings: {test_ratings.shape}")
     print(f"Train users: {train_users.shape}, Train movies: {train_movies.shape}")
-    print(f"Test users: {test_ratings['user_id'].nunique()}")
 
     return train_ratings, test_ratings, train_movies, train_users, train_watches
 
@@ -505,30 +481,13 @@ def calculate_accuracy(user_id, recommendations, test_ratings):
     return accuracy
 
 
-def calculate_cosine_similarity(model, recommendations, test_movies):
-    # get the average vector of the recommended movies from the model
-    if len(recommendations) == 0 or test_movies is None or len(test_movies) == 0:
-        return 0.0
-    rec_indices = [model.movies_df[model.movies_df['movie_id'] == movie_id].index[0] for movie_id in recommendations if movie_id in model.movies_df['movie_id'].values]
-    if len(rec_indices) == 0:
-        return 0.0
-    rec_vectors = model.movie_profiles[rec_indices]
-    avg_rec_vector = np.mean(rec_vectors, axis=0).reshape(1, -1)
-    # get the average vector of the test movies
-
-    return 0.0
-
-
-
 def calculate_diversity(rec_ids, movies_df):
     genres_seen = set()
     for mid in rec_ids:
         row = movies_df[movies_df["movie_id"] == mid]
         if not row.empty:
             genres = row.iloc[0]["genres"]
-            if isinstance(genres, str):
-                for g in genres.split():
-                    genres_seen.add(g)
+            genres_seen.update(set(genres))
     return len(genres_seen) / (len(rec_ids) + 1e-9)
 
 def calculate_coverage(all_rec_lists, all_movie_ids):
@@ -538,24 +497,21 @@ def calculate_coverage(all_rec_lists, all_movie_ids):
     return len(recommended_movies) / len(all_movie_ids)
 
 
-def evaluate_precision(content_recommender:ContentBasedRecommender, users_subset, test_df, k=20):
+def evaluate_precision(content_recommender:ContentBasedRecommender, users_subset, test_df, movies, k=20):
 
     metrics = {"precision": [], "recall": [], "ndcg": [], "accuracy": [], "diversity": []}
     all_rec_lists = []
+    test_relevant = test_df["movie_id"].tolist()
+    print(f"Total test relevant movies: {len(test_relevant)}")
 
-    for user_id in users_subset:
+    for user_id in tqdm.tqdm(users_subset):
         test_watched = test_df[test_df["user_id"] == user_id]["movie_id"].tolist()
-        test_relevant = test_df["movie_id"].tolist()
 
         if not test_watched:
             continue
 
-        user_meta = None
-        if user_id not in content_recommender.user_profiles:
-            user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
-
-        recs, _ = content_recommender.get_recommendations(user_id, user_data=user_meta, top_n=k, exclude_seen=True)
-        rec_ids = recs["movie_id"].tolist()
+        rec_ids, _ = content_recommender.get_recommendations(user_id, top_n=k, exclude_seen=True)
+        
         all_rec_lists.append(rec_ids)
 
         hits_relevant = len(set(rec_ids) & set(test_relevant))
@@ -700,50 +656,57 @@ def test_single_user(content_recommender:ContentBasedRecommender, new_user_id:in
 
 def run_train_test(movies, users, ratings, watches, train=False):
     train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
-    pickle.dump(test_ratings, open('model/results/content_based_test_ratings.pkl', 'wb'))
+    # pickle.dump(test_ratings, open('model/results/content_based_test_ratings.pkl', 'wb'))
+    test_users = pd.read_csv('data/test_users_all.csv')
+    test_df = test_ratings[test_ratings['user_id'].isin(test_users['user_id'].values)].reset_index(drop=True)
+    print(f"Test users: {test_df['user_id'].nunique()}")
     
     if train: 
         content_recommender = ContentBasedRecommender()
         # Fit the model on the training data
-        content_recommender.fit(train_movies, train_users, train_ratings, train_watches)
+        content_recommender.fit(train_movies, users, train_ratings, train_watches, num_preprocess_user=100000)
         pickle.dump(content_recommender, open('model/results/content_based_model.pkl', 'wb'))
 
     else:
         content_recommender = pickle.load(open('model/results/content_based_model.pkl', 'rb'))
 
-    # Evaluate the model on the test data
-    test_results = []
-    i = 1
-    new_user_count = 0
-    all_recommendations = []
-    for user_id in test_ratings['user_id'].unique():
-        print(f"Evaluating recommendations for user {user_id} {i}/{len(test_ratings['user_id'].unique())}", end='\r')
 
-        user_meta = None
-        if user_id not in content_recommender.user_profiles:
-            new_user_count += 1
-            user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
+    results = evaluate_precision(content_recommender, test_users['user_id'].unique(), test_df, movies, k=20)
+    print(f"\nEvaluation Results on Test Set:")
+    print(results)
+    # # Evaluate the model on the test data
+    # test_results = []
+    # i = 1
+    # new_user_count = 0
+    # all_recommendations = []
+    # for user_id in test_ratings['user_id'].unique():
+    #     print(f"Evaluating recommendations for user {user_id} {i}/{len(test_ratings['user_id'].unique())}", end='\r')
 
-        recs, inf_time = content_recommender.get_recommendations(user_id, top_n=20, user_data=user_meta)
-        all_recommendations.append(recs)
-        # Calculate metrics
-        # test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'metrics': calculate_recommendation_metrics(user_id, recs, test_ratings, train_movies)})
-        test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'user_type': 'existing' if user_id in content_recommender.user_profiles else 'new'})
-        i += 1
-        # Save intermediate results
-        if i % 1000 == 0:
-            print(f"Processed {i} users...")
-            json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
+    #     user_meta = None
+    #     if user_id not in content_recommender.user_profiles:
+    #         new_user_count += 1
+    #         user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
 
-    # Save final results
-    json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
+    #     recs, inf_time = content_recommender.get_recommendations(user_id, top_n=20, user_data=user_meta)
+    #     all_recommendations.append(recs)
+    #     # Calculate metrics
+    #     # test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'metrics': calculate_recommendation_metrics(user_id, recs, test_ratings, train_movies)})
+    #     test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'user_type': 'existing' if user_id in content_recommender.user_profiles else 'new'})
+    #     i += 1
+    #     # Save intermediate results
+    #     if i % 1000 == 0:
+    #         print(f"Processed {i} users...")
+    #         json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
 
-    # Calculate overall metrics
-    overall_metrics = calculate_overall_metrics(all_recommendations, train_movies)
-    print(f"\nOverall Metrics:")
-    print(f"Coverage: {overall_metrics['coverage']*100:.4f}%")
-    print(f"Diversity: {overall_metrics['diversity']*100:.4f}%")
-    print(f"New users in test set: {new_user_count}/{len(test_ratings['user_id'].unique())}")    
+    # # Save final results
+    # json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
+
+    # # Calculate overall metrics
+    # overall_metrics = calculate_overall_metrics(all_recommendations, train_movies)
+    # print(f"\nOverall Metrics:")
+    # print(f"Coverage: {overall_metrics['coverage']*100:.4f}%")
+    # print(f"Diversity: {overall_metrics['diversity']*100:.4f}%")
+    # print(f"New users in test set: {new_user_count}/{len(test_ratings['user_id'].unique())}")    
 
     # Print model metrics
     model_size_bytes = content_recommender.get_model_size()
@@ -769,6 +732,6 @@ if __name__ == "__main__":
     # model = pickle.load(open('model/results/content_based_model_full.pkl', 'rb'))
     # train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
     # evaluate_precision(model, test_ratings, )
-    # run_train_test(movies, users, ratings, watches, train=False)
+    run_train_test(movies, users, ratings, watches, train=False)
     # train_model_full_data(movies, users, ratings, watches)
-    test_single_user(pickle.load(open('model/results/content_based_model_full.pkl', 'rb')), 88011)
+    # test_single_user(pickle.load(open('model/results/content_based_model_full.pkl', 'rb')), 88011)
