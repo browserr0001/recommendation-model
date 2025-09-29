@@ -9,33 +9,26 @@
 
 Current model outputs: 
 ```
-Train-test Split timestamp: 2025-09-23 02:19:06
-Train ratings: (58968, 4), Test ratings: (8028, 5)
-Train users: (30072, 4), Train movies: (14606, 16)
-Test users: 7902
-Processed 1000 users...ons for user 18847 999/7902
-Processed 2000 users...ons for user 37695 1999/7902
-Processed 3000 users...ons for user 56759 2999/7902
-Processed 4000 users...ons for user 75607 3999/7902
-Processed 5000 users...ons for user 94684 4999/7902
-Processed 6000 users...ons for user 113513 5999/7902
-Processed 7000 users...ons for user 132795 6999/7902
-Overall Metrics:
-Coverage: 71.7856%
-Diversity: 100.0000%
-New users in test set: 5481/7902
-
-Model Metrics:
-Training Time: 41.83 seconds
-Model Size: 33.98 MB
-
-
 Building movie profiles...
 Building user profiles...
-Training completed in 75.59 seconds
+Processing 51487 users with ratings...
+100%|██████████████████████████████████████████████████████████████████████████████| 51487/51487 [01:25<00:00, 601.76it/s]
+Creating profiles for 48513 cold start users using batch processing...
+Computing similarity matrix for cold-start users...
+Creating cold-start profiles from similar users...
+100%|███████████████████████████████████████████████████████████████████████████████████████| 5/5 [03:14<00:00, 38.81s/it]
+Created profiles for 100000 users total
+Training completed in 304.63 seconds
 Model trained on full data and saved as 'model/results/content_based_model_full.pkl'
 
 Model Metrics:
-Full Training Time: 75.59 seconds
-Full Model Size: 64.61 MB
+Full Training Time: 304.63 seconds
+Full Model Size: 106.43 MB
+After User profile creation Time Elapsed: 0.0000 seconds
+After Calculating Similarity Time Elapsed: 0.0142 seconds
+
+
+Recommendations for new user 46052(cold start):
+['head+games+2012', 'manufacturing+dissent+2007', 'riot+on+2004', 'the+whale+2011', 'mutantes+2009', 'under+our+skin+2008', 'welcome+to+macintosh+2008', 'confessions+of+a+burning+man+2003', 'the+living+sea+1995', 'mount+st.+elias+2009', 'the+rock-afire+explosion+2009', 'brutal+beauty+tales+of+the+rose+city+rollers+2010', 'dancing+outlaw+ii+jesco+goes+to+hollywood+1999', 'behind+the+burly+q+2010', 'mission+to+mir+1997', 'filming+othello+1978', 'addicted+to+plastic+2008', 'armbryterskan+frn+ensamheten+2004', 'the+jeffrey+dahmer+files+2013', 'fame+high+2012']
+Inference Time (cold start): 0.0204 seconds
 ```

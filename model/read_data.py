@@ -1,7 +1,7 @@
 import pyarrow.parquet as pq
 import pandas as pd
 
-def read_data(path_prefix='data/'):
+def read_data(path_prefix='data/', total_num_users=100000):
     movies = pq.read_table(f'{path_prefix}meta/movies.parquet').to_pandas()
     users = pq.read_table(f'{path_prefix}meta/users_new.parquet').to_pandas()
     ratings = pq.read_table(f'{path_prefix}ratings/ratings.parquet').to_pandas()
@@ -28,7 +28,7 @@ def read_data(path_prefix='data/'):
 
     # convert adult to boolean
     movies['adult'] = movies['adult'].astype(bool)
-    return movies, users, ratings, watches
+    return movies, users[:total_num_users], ratings, watches
 
 
 

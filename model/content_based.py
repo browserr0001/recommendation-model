@@ -122,7 +122,7 @@ class ContentBasedRecommender:
 
 
     def create_user_profiles(self, users, movie_features):
-        # Build user profiles
+        """Build user profiles with optimized cold-start handling"""
         print("Building user profiles...")
         
         # Create user metadata encoder for cold start
@@ -138,49 +138,98 @@ class ContentBasedRecommender:
         
         # For existing users, create profiles based on their ratings
         user_profiles = {}
+        
+        # First handle users we have ratings for (fast path)
+        rating_users = set(self.ratings_combined['user_id'].unique())
+        print(f"Processing {len(rating_users)} users with ratings...")
+        
         groups = self.ratings_combined.groupby('user_id')
-        # Create user profile for all user_id in users dataframe, call create_user_profile_cold_start if user not seen in self.ratings_combined
-        new_users = []
-        for user_id in tqdm.tqdm(users['user_id'].values):
-            if user_id not in self.ratings_combined['user_id'].values:
-                new_users.append(user_id)
-            else:
-                group = groups.get_group(user_id)
-                # Get the movies this user has rated
-                rated_movie_indices = []
-                movie_ids = []
-                for movie_id in group['movie_id']:
-                    movie_idx = self.movies_df[self.movies_df['movie_id'] == movie_id].index
-                    if len(movie_idx) > 0:
-                        rated_movie_indices.append(movie_idx[0])
-                        movie_ids.append(movie_id)
+        for user_id in tqdm.tqdm(rating_users):
+            group = groups.get_group(user_id)
+            # Get the movies this user has rated
+            rated_movie_indices = []
+            for movie_id in group['movie_id']:
+                movie_idx = self.movies_df[self.movies_df['movie_id'] == movie_id].index
+                if len(movie_idx) > 0:
+                    rated_movie_indices.append(movie_idx[0])
+            
+            if rated_movie_indices:
+                # Get the genres of movies this user has rated
+                user_prefs = np.zeros(movie_features.shape[1])
+                ratings = np.array(group['rating'])
                 
-                if rated_movie_indices:
-                    # Get the genres of movies this user has rated
-                    user_prefs = np.zeros(movie_features.shape[1])
-                    ratings = np.array(group['rating'])
+                # Weight the genres by the ratings
+                for i, idx in enumerate(rated_movie_indices):
+                    user_prefs += ratings[i] * self.movie_profiles[idx]
                     
-                    # Weight the genres by the ratings
-                    for i, idx in enumerate(rated_movie_indices):
-                        user_prefs += ratings[i] * self.movie_profiles[idx]
-                        
-                    # Normalize
-                    if np.sum(user_prefs) > 0:
-                        user_prefs = user_prefs / np.sum(user_prefs)
-                        
-                    user_profiles[user_id] = user_prefs
-
+                # Normalize
+                if np.sum(user_prefs) > 0:
+                    user_prefs = user_prefs / np.sum(user_prefs)
+                    
+                user_profiles[user_id] = user_prefs
+        
+        # Now handle cold start users more efficiently
+        cold_users = set(users['user_id']) - rating_users
+        cold_user_count = len(cold_users)
+        print(f"Creating profiles for {len(cold_users)} cold start users using batch processing...")
+        
+        # Process cold users in chunks - no need to hit API for metadata that's already in users_df
+        chunk_size = 10000
+        num_chunks = (cold_user_count + chunk_size - 1) // chunk_size
+        
+        # Pre-transform all user metadata once
+        user_meta_transformed = self.cold_start_user_pipeline.transform(
+            users[users['user_id'].isin(cold_users)][user_features]
+        )
+        
+        # Pre-transform existing user metadata once
+        existing_user_features = self.cold_start_user_pipeline.transform(
+            users[users['user_id'].isin(rating_users)][user_features]
+        )
+        
+        # Calculate all similarities at once (batch matrix multiplication)
+        print("Computing similarity matrix for cold-start users...")
+        all_similarities = cosine_similarity(user_meta_transformed, existing_user_features)
+        
+        # Get top similar users for each cold start user
+        top_k = 5  # Number of similar users to consider
+        
+        print("Creating cold-start profiles from similar users...")
+        for chunk_idx in tqdm.tqdm(range(num_chunks)):
+            start_idx = chunk_idx * chunk_size
+            end_idx = min((chunk_idx + 1) * chunk_size, cold_user_count)
+            chunk_users = list(cold_users)[start_idx:end_idx]
+            
+            for i, user_id in enumerate(chunk_users):
+                global_idx = start_idx + i
+                
+                # Get top similar users
+                user_similarities = all_similarities[global_idx]
+                top_user_indices = np.argsort(user_similarities)[-top_k:]
+                top_user_ids = self.users_df.iloc[top_user_indices]['user_id'].values
+                
+                # Create weighted profile based on similar users
+                cold_start_profile = np.zeros(self.num_total_features)
+                weights = user_similarities[top_user_indices]
+                
+                # Skip if no similar users found
+                if np.sum(weights) <= 0:
+                    # Use generic profile
+                    cold_start_profile = np.ones(self.num_total_features) / self.num_total_features
+                else:
+                    # Normalize weights
+                    weights = weights / np.sum(weights)
+                    
+                    # Create profile from similar users
+                    for j, sim_user_id in enumerate(top_user_ids):
+                        if sim_user_id in user_profiles:
+                            cold_start_profile += weights[j] * user_profiles[sim_user_id]
+                
+                # Store the profile
+                user_profiles[user_id] = cold_start_profile
+        
+        print(f"Created profiles for {len(user_profiles)} users total")
         self.user_profiles = user_profiles
-        print(f"Created profiles for {len(user_profiles)} existing users. Now processing {len(new_users)} new users.")
-
-        for user_id in tqdm.tqdm(new_users):
-            user_data = users[users['user_id'] == user_id]
-            if not user_data.empty:
-                user_profile = self.create_user_profile_cold_start(user_data.iloc[0].to_dict())
-                user_profiles[user_id] = user_profile
-            else:
-                print(f"No metadata for user {user_id}. Using generic profile.")
-                user_profiles[user_id] = np.ones(movie_features.shape[1]) / movie_features.shape[1]  
         return user_profiles
 
     def fit(self, movies_df, users_df, ratings_df, watches_df, mid_rating_watch_over=0.5):
@@ -699,7 +748,7 @@ def train_model_full_data(movies, users, ratings, watches):
     print(f"Full Model Size: {model_size_bytes / (1024*1024):.2f} MB")
 
 if __name__ == "__main__":
-    movies, users, ratings, watches = read_data('data/')
+    movies, users, ratings, watches = read_data('data/', 100000)
     # model = pickle.load(open('model/results/content_based_model_full.pkl', 'rb'))
     # train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
     # evaluate_precision(model, test_ratings, )
