@@ -37,15 +37,19 @@ Inference Time (cold start): 0.1316 seconds
 
 For traing test:
 ```
-Train users: (30072, 4), Train movies: (14606, 16)
-Test users: 2011
+Creating profiles for 53454 cold start users using batch processing...
+Computing similarity matrix for cold-start users...
+Creating cold-start profiles from similar users...
+100%|█████████████████████████████████████████████████████████████████| 6/6 [02:40<00:00, 26.77s/it]
+Created profiles for 100000 users total
+Training completed in 244.89 seconds
 Total test relevant movies: 2061
-100%|█████████████████████████████████████████| 2011/2011 [01:31<00:00, 22.01it/s]
+100%|███████████████████████████████████████████████████████████| 2011/2011 [00:34<00:00, 58.40it/s]
 
 Evaluation Results on Test Set:
-{'precision': 0.1420934858279463, 'recall': 0.0013788790473357236, 'ndcg': 0.1518558923618042, 'accuracy': 9.945300845350573e-05, 'diversity': 0.14982595722771508, 'coverage': 0.38454057254006513}
+{'precision': 0.14497762307309797, 'recall': 0.0014068667935283647, 'ndcg': 0.1523454066869497, 'accuracy': 4.9726504226752865e-05, 'diversity': 0.15278468422905894, 'coverage': 0.3765064061905366}
 
 Model Metrics:
-Training Time: 302.01 seconds
+Training Time: 244.89 seconds
 Model Size: 87.34 MB
 ```

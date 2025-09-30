@@ -127,7 +127,7 @@ class ContentBasedRecommender:
         print("Building user profiles...")
         
         # Create user metadata encoder for cold start
-        user_features = ['age', 'occupation', 'gender']
+        user_features = ['age', 'gender']
         self.cold_start_user_pipeline = Pipeline([
             ('encoder', OneHotEncoder(sparse_output=False, handle_unknown='ignore')),
             ('scaler', StandardScaler())
@@ -272,7 +272,7 @@ class ContentBasedRecommender:
         self.user_profiles = self.create_user_profiles(users_df[:num_preprocess_user], movie_features)
         # Transform all users for cold start handling
         self.all_users = users_df
-        self.all_users_transformed = self.cold_start_user_pipeline.transform(users_df[['age', 'occupation', 'gender']])
+        self.all_users_transformed = self.cold_start_user_pipeline.transform(users_df[['age', 'gender']])
 
         t_end = time.time()
         self.training_time = t_end - t_start
@@ -285,7 +285,7 @@ class ContentBasedRecommender:
         Create a user profile for a new user based on demographic information
         
         Parameters:
-        user_data: dict with 'age', 'occupation', 'gender'
+        user_data: dict with 'age', 'gender'
         
         Returns:
         user_profile: numpy array representing user preferences
@@ -293,13 +293,13 @@ class ContentBasedRecommender:
         if user_features is None:
             # Convert user data to DataFrame
             if isinstance(user_data, dict):
-                user_data = {k: v for k, v in user_data.items() if k in ['age', 'occupation', 'gender']}
+                user_data = {k: v for k, v in user_data.items() if k in ['age', 'gender']}
                 user_df = pd.DataFrame([user_data])
             else:
                 print("Creating generic user profile with default values due to missing or invalid user data")
                 user_df = pd.DataFrame([{
                     'age': user_data.get('age', 25), 
-                    'occupation': user_data.get('occupation', 'other'),
+                    # 'occupation': user_data.get('occupation', 'other'),
                     'gender': user_data.get('gender', 'M')
                 }])
                 
@@ -732,6 +732,6 @@ if __name__ == "__main__":
     # model = pickle.load(open('model/results/content_based_model_full.pkl', 'rb'))
     # train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
     # evaluate_precision(model, test_ratings, )
-    run_train_test(movies, users, ratings, watches, train=False)
-    # train_model_full_data(movies, users, ratings, watches)
+    # run_train_test(movies, users, ratings, watches, train=True)
+    train_model_full_data(movies, users, ratings, watches)
     # test_single_user(pickle.load(open('model/results/content_based_model_full.pkl', 'rb')), 88011)
