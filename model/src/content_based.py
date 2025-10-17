@@ -12,17 +12,21 @@ import tqdm
 
 class ContentBasedRecommender:
     def __init__(self):
-        self.movie_profiles = None
-        self.user_profiles = None
-        self.movies_df = None
-        self.preprocessed_users_df = None
-        self.preprocessed_users_transformed = None
-        self.all_users = None
-        self.all_users_transformed = None
-        self.ratings_combined = None
-        self.cold_start_user_pipeline = None
-        
-    def create_movie_profiles(self, movies):
+        # This movie_profiles is a 2D numpy array where each row corresponds to a movie and each column to a feature
+        self.movie_profiles:np.ndarray = None
+        # User profiles is a mapping of user_id to list of movie indices ranked by similarity
+        self.user_profiles:dict = None
+        # To handle cold start users, we will create group profiles based on demographics
+        self.group_profiles:dict = None
+        self.all_genders:set = None
+        self.all_age_groups:set = None
+        # Use this movies_df to find the movie_id corresponding to an index in movie_profiles and user_profiles
+        self.movies_df:pd.DataFrame = None
+        self.all_users:pd.DataFrame = None
+        self.ratings_combined:pd.DataFrame = None
+        self.cold_start_user_pipeline:Pipeline = None
+
+    def create_movie_profiles(self, movies: pd.DataFrame) -> np.ndarray:
         # Build movie profiles
         print("Building movie profiles...")
         n_movies = len(movies)
@@ -122,7 +126,7 @@ class ContentBasedRecommender:
         return movie_features
 
 
-    def create_user_profiles(self, users, movie_features):
+    def create_user_profiles(self, users: pd.DataFrame, movie_features: np.ndarray, top_n=20):
         """Build user profiles with optimized cold-start handling"""
         print("Building user profiles...")
         
@@ -145,6 +149,7 @@ class ContentBasedRecommender:
         print(f"Processing {len(rating_users)} users with ratings...")
         
         groups = self.ratings_combined.groupby('user_id')
+        user_prefs_map = {}
         for user_id in tqdm.tqdm(rating_users):
             group = groups.get_group(user_id)
             # Get the movies this user has rated
@@ -167,77 +172,57 @@ class ContentBasedRecommender:
                 if np.sum(user_prefs) > 0:
                     user_prefs = user_prefs / np.sum(user_prefs)
                     
-                user_profiles[int(user_id)] = user_prefs
-        
-        # Now handle cold start users more efficiently
-        cold_users = set(users['user_id']) - rating_users
-        cold_user_count = len(cold_users)
-        print(f"Creating profiles for {len(cold_users)} cold start users using batch processing...")
-        
-        # Process cold users in chunks - no need to hit API for metadata that's already in users_df
-        chunk_size = 10000
-        num_chunks = (cold_user_count + chunk_size - 1) // chunk_size
-        
-        # Pre-transform all user metadata once
-        user_meta_transformed = self.cold_start_user_pipeline.transform(
-            users[users['user_id'].isin(cold_users)][user_features]
-        )
-        
-        # Pre-transform existing user metadata once
-        existing_user_features = self.cold_start_user_pipeline.transform(
-            users[users['user_id'].isin(rating_users)][user_features]
-        )
-
-        # Save a copy of preprocessed users for cold start profile creation
-        self.preprocessed_users_df = users.copy()
-        self.preprocessed_users_transformed = self.cold_start_user_pipeline.transform(users[user_features])
-
-        # Calculate all similarities at once (batch matrix multiplication)
-        print("Computing similarity matrix for cold-start users...")
-        all_similarities = cosine_similarity(user_meta_transformed, existing_user_features)
-        
-        # Get top similar users for each cold start user
-        top_k = 5  # Number of similar users to consider
-        
-        print("Creating cold-start profiles from similar users...")
-        for chunk_idx in tqdm.tqdm(range(num_chunks)):
-            start_idx = chunk_idx * chunk_size
-            end_idx = min((chunk_idx + 1) * chunk_size, cold_user_count)
-            chunk_users = list(cold_users)[start_idx:end_idx]
-            
-            for i, user_id in enumerate(chunk_users):
-                global_idx = start_idx + i
-                
-                # Get top similar users
-                user_similarities = all_similarities[global_idx]
-                top_user_indices = np.argsort(user_similarities)[-top_k:]
-                top_user_ids = users.iloc[top_user_indices]['user_id'].values
-                
-                # Create weighted profile based on similar users
-                cold_start_profile = np.zeros(self.num_total_features)
-                weights = user_similarities[top_user_indices]
-                
-                # Skip if no similar users found
-                if np.sum(weights) <= 0:
-                    # Use generic profile
-                    cold_start_profile = np.ones(self.num_total_features) / self.num_total_features
-                else:
-                    # Normalize weights
-                    weights = weights / np.sum(weights)
-                    
-                    # Create profile from similar users
-                    for j, sim_user_id in enumerate(top_user_ids):
-                        if sim_user_id in user_profiles:
-                            cold_start_profile += weights[j] * user_profiles[sim_user_id]
-                
-                # Store the profile
-                user_profiles[user_id] = cold_start_profile
-        
-        print(f"Created profiles for {len(user_profiles)} users total")
+                # precalculate the recommendations for this user
+                similarity_scores = cosine_similarity([user_prefs], self.movie_profiles)[0]
+                user_prefs_map[user_id] = user_prefs
+                # save the indices of top 20 recommendations ranked by similarity
+                ranked_movie_indices = np.argsort(similarity_scores)[::-1]
+                user_profiles[user_id] = ranked_movie_indices[:top_n]
         self.user_profiles = user_profiles
-        return user_profiles
+        user_prefs_map_df = pd.DataFrame.from_dict(user_prefs_map, orient='index')
+        # add age and gender to user_prefs_map_df by merging with users
+        user_prefs_map_df = user_prefs_map_df.merge(users[['user_id', 'age', 'gender']], left_index=True, right_on='user_id', how='left')
 
-    def fit(self, movies_df, users_df, ratings_df, watches_df, mid_rating_watch_over=0.5, num_preprocess_user=100000):
+        # Now handle cold start users more efficiently
+        print("Creating cold-start group profiles...")
+        # Group self.all_users by gender and age (in decades)
+        # For all users in each group, assign the average profile of that group
+        # This will help in cold start for users not in the preprocessed set
+        group_profiles = {}
+        # Get the age_group in user_prefs_map_df
+        user_prefs_map_df['age_group'] = (user_prefs_map_df['age'] // 10) * 10
+        user_prefs_map_df['age_group'] = user_prefs_map_df['age_group'].fillna(-1).astype(int)
+        user_prefs_map_df['gender'] = user_prefs_map_df['gender'].fillna('Unknown')
+        # group user_prefs_map_df by gender and age_group and get the mean of user_prefs columns
+        prefs_groups = user_prefs_map_df.groupby(['gender', 'age_group'])
+        for name, group in prefs_groups:
+            if len(group) > 0:
+                group_prefs = group.drop(columns=['user_id', 'age', 'gender', 'age_group']).mean().values
+                if np.sum(group_prefs) > 0:
+                    group_prefs = group_prefs / np.sum(group_prefs)
+                group_recs = np.argsort(cosine_similarity([group_prefs], self.movie_profiles)[0])[::-1]
+                group_profiles[name] = group_recs[:top_n]
+        # reorganize group_profiles to {'gender': {'age_group': recs}}
+        reorganized_group_profiles = {}
+        for (gender, age_group), recs in group_profiles.items():      
+            if gender not in reorganized_group_profiles:
+                reorganized_group_profiles[gender] = {}
+            reorganized_group_profiles[gender][age_group] = recs
+        self.group_profiles = reorganized_group_profiles
+
+        # Add a default profile for unknown demographics (movies ranked by overall popularity)
+        self.group_profiles['Unknown'] = {}
+        self.group_profiles['Unknown'][-1] = np.argsort(self.movies_df['popularity'].values)[::-1][:top_n]
+
+        self.all_genders = set(self.group_profiles.keys())
+        self.all_age_groups = set()
+        for gender in self.group_profiles:
+            self.all_age_groups.update(self.group_profiles[gender].keys())
+
+        # print(f"Created profiles for {len(user_profiles)} users total")
+        return 
+
+    def fit(self, movies_df: pd.DataFrame, users_df: pd.DataFrame, ratings_df: pd.DataFrame, watches_df: pd.DataFrame, mid_rating_watch_over: float = 0.5):
         """
         Train the content-based recommender
         
@@ -249,6 +234,7 @@ class ContentBasedRecommender:
         """
         t_start = time.time()
         self.movies_df = movies_df.copy()
+        self.all_users = users_df.copy()
 
         # merge watches_df with movies_df and calculate the percent watched 
         # If the user watched over half of the movie, it is automatically counted as a mid rating
@@ -269,66 +255,13 @@ class ContentBasedRecommender:
         self.movie_profiles = movie_features
         self.num_total_features = movie_features.shape[1]
 
-        self.user_profiles = self.create_user_profiles(users_df[:num_preprocess_user], movie_features)
-        # Transform all users for cold start handling
-        self.all_users = users_df
-        self.all_users_transformed = self.cold_start_user_pipeline.transform(users_df[['age', 'gender']])
+        self.create_user_profiles(users_df, movie_features)
 
         t_end = time.time()
         self.training_time = t_end - t_start
         print(f"Training completed in {self.training_time:.2f} seconds")
         
         return self
-    
-    def create_user_profile_cold_start(self, user_features=None, user_data=None):
-        """
-        Create a user profile for a new user based on demographic information
-        
-        Parameters:
-        user_data: dict with 'age', 'gender'
-        
-        Returns:
-        user_profile: numpy array representing user preferences
-        """
-        if user_features is None:
-            # Convert user data to DataFrame
-            if isinstance(user_data, dict):
-                user_data = {k: v for k, v in user_data.items() if k in ['age', 'gender']}
-                user_df = pd.DataFrame([user_data])
-            else:
-                print("Creating generic user profile with default values due to missing or invalid user data")
-                user_df = pd.DataFrame([{
-                    'age': user_data.get('age', 25), 
-                    # 'occupation': user_data.get('occupation', 'other'),
-                    'gender': user_data.get('gender', 'M')
-                }])
-                
-            # Transform user metadata into feature vector
-            user_features = self.cold_start_user_pipeline.transform(user_df)
-            
-        # Find similar users in the training set
-        user_similarities = cosine_similarity(
-            user_features, 
-            self.preprocessed_users_transformed
-        )[0]
-        
-        # Get only the single most similar user
-        most_similar_idx = np.argmax(user_similarities)
-        most_similar_user_id = self.preprocessed_users_df.iloc[most_similar_idx]['user_id']
-        
-        # If this user has a profile, use it directly
-        if most_similar_user_id in self.user_profiles:
-            cold_start_profile = self.user_profiles[most_similar_user_id].copy()
-        else:
-            # If even the most similar user doesn't have a profile, use generic profile
-            cold_start_profile = np.ones(self.num_total_features) / self.num_total_features
-        
-        # Cache for future use
-        user_id = user_data.get('user_id') if user_data and isinstance(user_data, dict) else None
-        if user_id:
-            self.user_profiles[user_id] = cold_start_profile
-        
-        return cold_start_profile
     
     def get_recommendations(self, user_id, top_n=10, exclude_seen=True):
         """
@@ -343,52 +276,23 @@ class ContentBasedRecommender:
         recommendations: DataFrame with movie recommendations
         """
         t_start = time.time()
-        
-        # Check if this is a known or new user
-        if user_id in self.user_profiles:
-            # print("Known user - using existing profile")
-            user_profile = self.user_profiles[user_id]
-        elif user_id in set(self.all_users['user_id'].values):
-            row_idx = self.all_users[self.all_users['user_id'] == user_id].index[0]
-            user_features = self.all_users_transformed[row_idx].reshape(1, -1) 
-            user_profile = self.create_user_profile_cold_start(user_features = user_features, user_data = None)
-            print("Created user profile from preprocessed user metadata")
+        if user_id in self.user_profiles.keys():
+            # Existing user, get top_n recommendations from precomputed list
+            ranked_movie_indices = self.user_profiles[user_id]
         else:
+            # Cold start users
             try: 
-                user_data = get_user_metadata(user_id)  
-                user_profile = self.create_user_profile_cold_start(user_features = None, user_data = user_data)
-                print("Created user profile by calling user metadata API")
-
-            except Exception as e:
-                print(f"Error creating user profile for {user_id}: {e}")
-                # No metadata for this user, use default profile
-                print(f"No metadata for user {user_id}. Using generic profile.")
-                user_profile = np.ones(self.num_total_features) / self.num_total_features  # Equal preference for all features
-
-        # print(f"After User profile creation Time Elapsed: {time.time() - t_start:.4f} seconds")
-        # Calculate similarity to each movie
-        similarity_scores = cosine_similarity([user_profile], self.movie_profiles)[0]
-        # print(f"After Calculating Similarity Time Elapsed: {time.time() - t_start:.4f} seconds")
-        # Create a DataFrame with movie_ids and similarity scores
-        recommendations = pd.DataFrame({
-            'movie_id': self.movies_df['movie_id'],
-            'title': self.movies_df['title'],
-            'similarity': similarity_scores
-        })
+                user_age = self.all_users[self.all_users['user_id'] == user_id]['age'][0]
+                user_gender = self.all_users[self.all_users['user_id'] == user_id]['gender'][0]
+                if user_age//10*10 in self.all_age_groups and user_gender in self.all_genders:
+                    ranked_movie_indices = self.group_profiles[user_gender][user_age//10*10]
+                else:
+                    ranked_movie_indices = self.group_profiles['Unknown'][-1]
+            except:
+                ranked_movie_indices = self.group_profiles['Unknown'][-1]
         
-        # Exclude movies the user has already rated if requested
-        if exclude_seen and user_id in self.ratings_combined['user_id'].values:
-            seen_movies = self.ratings_combined[self.ratings_combined['user_id'] == user_id]['movie_id'].values
-            recommendations = recommendations[~recommendations['movie_id'].isin(seen_movies)]
-        
-        # Sort by similarity and return top N
-        recommendations = recommendations.sort_values('similarity', ascending=False).head(top_n)
-        
-        t_end = time.time()
-        inference_time = t_end - t_start
-        # print(f"Recommendations generated in {inference_time:.4f} seconds")
-
-        return recommendations['movie_id'].values.tolist(), inference_time
+        movie_ids = self.movies_df.iloc[ranked_movie_indices]['movie_id'].values
+        return movie_ids[:top_n].tolist(), time.time() - t_start
 
     def get_model_size(self):
         """
@@ -456,11 +360,11 @@ def train_test_split(ratings_df, movies_df, users_df, watches_df, test_size=0.2,
 
     test_watch_subset = test_watches[['timestamp_start', 'user_id', 'movie_id']]
     test_ratings = pd.concat([test_watch_subset, test_ratings]).groupby(['user_id', 'movie_id']).last().reset_index()
-    
+    test_users = test_ratings['user_id'].unique()
     print(f"Train ratings: {train_ratings.shape}, Test ratings: {test_ratings.shape}")
     print(f"Train users: {train_users.shape}, Train movies: {train_movies.shape}")
 
-    return train_ratings, test_ratings, train_movies, train_users, train_watches
+    return train_ratings,  train_movies, train_users, train_watches, test_ratings, test_users
 
 def calculate_accuracy(user_id, recommendations, test_ratings):
     """
@@ -504,7 +408,7 @@ def evaluate_precision(content_recommender:ContentBasedRecommender, users_subset
     test_relevant = test_df["movie_id"].tolist()
     print(f"Total test relevant movies: {len(test_relevant)}")
 
-    for user_id in tqdm.tqdm(users_subset):
+    for user_id in users_subset:
         test_watched = test_df[test_df["user_id"] == user_id]["movie_id"].tolist()
 
         if not test_watched:
@@ -647,72 +551,38 @@ def get_user_metadata(user_id, link="http://128.2.220.241:8080/user"):
         return None
 
 
-def test_single_user(content_recommender:ContentBasedRecommender, new_user_id:int):
-
-    cold_start_recommendations, cold_inference_time = content_recommender.get_recommendations(new_user_id, top_n=20)
-    print(f"\nRecommendations for new user {new_user_id}(cold start):")
-    print(cold_start_recommendations)
-    print(f"Inference Time (cold start): {cold_inference_time:.4f} seconds")
-
-def run_train_test(movies, users, ratings, watches, train=False):
-    train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
+def run_train_test(movies, users, ratings, watches, train=False, user_specific_test=False):
+    train_ratings,  train_movies, train_users, train_watches, test_ratings, test_users = train_test_split(ratings, movies, users, watches, test_size=0.05)
     # pickle.dump(test_ratings, open('model/results/content_based_test_ratings.pkl', 'wb'))
-    test_users = pd.read_csv('data/test_users_all.csv')
-    test_df = test_ratings[test_ratings['user_id'].isin(test_users['user_id'].values)].reset_index(drop=True)
+    if user_specific_test:
+        test_users = pd.read_csv('data/test_users_all.csv')['user_id'].unique()
+    test_df = test_ratings[test_ratings['user_id'].isin(test_users)].reset_index(drop=True)
     print(f"Test users: {test_df['user_id'].nunique()}")
     
     if train: 
         content_recommender = ContentBasedRecommender()
         # Fit the model on the training data
-        content_recommender.fit(train_movies, users, train_ratings, train_watches, num_preprocess_user=100000)
+        content_recommender.fit(train_movies, users, train_ratings, train_watches)
         pickle.dump(content_recommender, open('model/results/content_based_model.pkl', 'wb'))
 
     else:
         content_recommender = pickle.load(open('model/results/content_based_model.pkl', 'rb'))
 
-
-    results = evaluate_precision(content_recommender, test_users['user_id'].unique(), test_df, movies, k=20)
+    results = evaluate_precision(content_recommender, test_users, test_df, movies, k=20)
     print(f"\nEvaluation Results on Test Set:")
     print(results)
-    # # Evaluate the model on the test data
-    # test_results = []
-    # i = 1
-    # new_user_count = 0
-    # all_recommendations = []
-    # for user_id in test_ratings['user_id'].unique():
-    #     print(f"Evaluating recommendations for user {user_id} {i}/{len(test_ratings['user_id'].unique())}", end='\r')
-
-    #     user_meta = None
-    #     if user_id not in content_recommender.user_profiles:
-    #         new_user_count += 1
-    #         user_meta = get_user_metadata(user_id, "http://128.2.220.241:8080/user")
-
-    #     recs, inf_time = content_recommender.get_recommendations(user_id, top_n=20, user_data=user_meta)
-    #     all_recommendations.append(recs)
-    #     # Calculate metrics
-    #     # test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'metrics': calculate_recommendation_metrics(user_id, recs, test_ratings, train_movies)})
-    #     test_results.append({'user_id': int(user_id), 'recs': recs, 'inf_time': inf_time, 'user_type': 'existing' if user_id in content_recommender.user_profiles else 'new'})
-    #     i += 1
-    #     # Save intermediate results
-    #     if i % 1000 == 0:
-    #         print(f"Processed {i} users...")
-    #         json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
-
-    # # Save final results
-    # json.dump(test_results, open('model/results/content_based_test_results.json', 'w'), indent=4)
-
-    # # Calculate overall metrics
-    # overall_metrics = calculate_overall_metrics(all_recommendations, train_movies)
-    # print(f"\nOverall Metrics:")
-    # print(f"Coverage: {overall_metrics['coverage']*100:.4f}%")
-    # print(f"Diversity: {overall_metrics['diversity']*100:.4f}%")
-    # print(f"New users in test set: {new_user_count}/{len(test_ratings['user_id'].unique())}")    
-
+    
     # Print model metrics
     model_size_bytes = content_recommender.get_model_size()
     print(f"\nModel Metrics:")
     print(f"Training Time: {content_recommender.training_time:.2f} seconds")
     print(f"Model Size: {model_size_bytes / (1024*1024):.2f} MB")
+    results['model_size_mb'] = model_size_bytes / (1024*1024)
+    results['training_time_sec'] = content_recommender.training_time
+
+    with open('model/results/content_based_evaluation_results.json', 'w') as f:
+        json.dump(results, f, indent=4)
+    return results, model_size_bytes, content_recommender.training_time
 
 
 def train_model_full_data(movies, users, ratings, watches):
@@ -730,8 +600,5 @@ def train_model_full_data(movies, users, ratings, watches):
 if __name__ == "__main__":
     movies, users, ratings, watches = read_data('data/')
     # model = pickle.load(open('model/results/content_based_model_full.pkl', 'rb'))
-    # train_ratings, test_ratings, train_movies, train_users, train_watches = train_test_split(ratings, movies, users, watches, test_size=0.05)
-    # evaluate_precision(model, test_ratings, )
-    # run_train_test(movies, users, ratings, watches, train=True)
+    # run_train_test(movies, users, ratings, watches, train=True, user_specific_test=True)
     train_model_full_data(movies, users, ratings, watches)
-    # test_single_user(pickle.load(open('model/results/content_based_model_full.pkl', 'rb')), 88011)
