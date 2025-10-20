@@ -580,7 +580,7 @@ def run_train_test(movies, users, ratings, watches, train=False, user_specific_t
     results['model_size_mb'] = model_size_bytes / (1024*1024)
     results['training_time_sec'] = content_recommender.training_time
 
-    with open('model/results/content_based_evaluation_results.json', 'w') as f:
+    with open('model/content_based_evaluation_results.json', 'w') as f:
         json.dump(results, f, indent=4)
     return results, model_size_bytes, content_recommender.training_time
 
