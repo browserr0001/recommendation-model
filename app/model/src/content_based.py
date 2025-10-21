@@ -553,7 +553,7 @@ def get_user_metadata(user_id, link="http://128.2.220.241:8080/user"):
 
 def run_train_test(movies, users, ratings, watches, train=False, user_specific_test=False):
     train_ratings,  train_movies, train_users, train_watches, test_ratings, test_users = train_test_split(ratings, movies, users, watches, test_size=0.05)
-    # pickle.dump(test_ratings, open('model/results/content_based_test_ratings.pkl', 'wb'))
+    # pickle.dump(test_ratings, open('app/model/results/content_based_test_ratings.pkl', 'wb'))
     if user_specific_test:
         test_users = pd.read_csv('data/test_users_all.csv')['user_id'].unique()
     test_df = test_ratings[test_ratings['user_id'].isin(test_users)].reset_index(drop=True)
@@ -563,10 +563,10 @@ def run_train_test(movies, users, ratings, watches, train=False, user_specific_t
         content_recommender = ContentBasedRecommender()
         # Fit the model on the training data
         content_recommender.fit(train_movies, users, train_ratings, train_watches)
-        pickle.dump(content_recommender, open('model/results/content_based_model.pkl', 'wb'))
+        pickle.dump(content_recommender, open('app/model/results/content_based_model.pkl', 'wb'))
 
     else:
-        content_recommender = pickle.load(open('model/results/content_based_model.pkl', 'rb'))
+        content_recommender = pickle.load(open('app/model/results/content_based_model.pkl', 'rb'))
 
     results = evaluate_precision(content_recommender, test_users, test_df, movies, k=20)
     print(f"\nEvaluation Results on Test Set:")
@@ -580,7 +580,7 @@ def run_train_test(movies, users, ratings, watches, train=False, user_specific_t
     results['model_size_mb'] = model_size_bytes / (1024*1024)
     results['training_time_sec'] = content_recommender.training_time
 
-    with open('model/content_based_evaluation_results.json', 'w') as f:
+    with open('app/model/content_based_evaluation_results.json', 'w') as f:
         json.dump(results, f, indent=4)
     return results, model_size_bytes, content_recommender.training_time
 
@@ -588,8 +588,8 @@ def run_train_test(movies, users, ratings, watches, train=False, user_specific_t
 def train_model_full_data(movies, users, ratings, watches):
     content_recommender = ContentBasedRecommender()
     content_recommender.fit(movies, users, ratings, watches)
-    pickle.dump(content_recommender, open('model/results/content_based_model_full.pkl', 'wb'))
-    print("Model trained on full data and saved as 'model/results/content_based_model_full.pkl'")
+    pickle.dump(content_recommender, open('app/model/results/content_based_model_full.pkl', 'wb'))
+    print("Model trained on full data and saved as 'app/model/results/content_based_model_full.pkl'")
 
      # Print model metrics
     model_size_bytes = content_recommender.get_model_size()
@@ -599,6 +599,6 @@ def train_model_full_data(movies, users, ratings, watches):
 
 if __name__ == "__main__":
     movies, users, ratings, watches = read_data('data/')
-    # model = pickle.load(open('model/results/content_based_model_full.pkl', 'rb'))
+    # model = pickle.load(open('app/model/results/content_based_model_full.pkl', 'rb'))
     # run_train_test(movies, users, ratings, watches, train=True, user_specific_test=True)
     train_model_full_data(movies, users, ratings, watches)
