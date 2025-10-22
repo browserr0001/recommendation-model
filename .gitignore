@@ -1,0 +1,7 @@
+.vscode
+.venv
+*__pycache__/
+data/
+app/model/results/
+data_sample/
+*.pkl
