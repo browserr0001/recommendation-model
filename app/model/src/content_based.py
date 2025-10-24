@@ -4,11 +4,42 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.pipeline import Pipeline
 import time
 import pandas as pd
-from read_data import read_data
 import pickle
 import json
 import requests
 import tqdm
+
+import pyarrow.parquet as pq
+
+def read_data(path_prefix='data/'):
+    movies = pq.read_table(f'{path_prefix}meta/movies.parquet').to_pandas()
+    users = pq.read_table(f'{path_prefix}meta/users_new.parquet').to_pandas()
+    ratings = pq.read_table(f'{path_prefix}ratings/ratings.parquet').to_pandas()
+    watches = pq.read_table(f'{path_prefix}watches/watches.parquet').to_pandas()
+
+    selected_movie_cols = ['id', 'title', 'adult', 'budget', 'genres', 'original_language', 'overview', 'popularity', 'production_companies', 'production_countries', 'release_date', 'revenue', 'runtime', 'vote_average', 'vote_count']
+    movies = movies[selected_movie_cols]
+    movies['release_date'] = pd.to_datetime(movies['release_date'], errors='coerce')
+    movies['release_year'] = movies['release_date'].dt.year
+    movies.rename(columns={'id': 'movie_id'}, inplace=True)
+    
+
+    def get_names(names):
+        return [g['name'] for g in names]
+    movies['genres'] = movies['genres'].apply(get_names)
+    movies['production_companies'] = movies['production_companies'].apply(get_names)
+    movies['production_countries'] = movies['production_countries'].apply(get_names)
+
+
+    numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
+                           'vote_average', 'vote_count']
+    for feature in numeric_features:
+        movies[feature] = pd.to_numeric(movies[feature], errors='coerce')
+
+    # convert adult to boolean
+    movies['adult'] = movies['adult'].astype(bool)
+    return movies, users, ratings, watches
+
 
 class ContentBasedRecommender:
     def __init__(self):
@@ -585,12 +616,11 @@ def run_train_test(movies, users, ratings, watches, train=False, user_specific_t
     return results, model_size_bytes, content_recommender.training_time
 
 
-def train_model_full_data(movies, users, ratings, watches):
+def train_model_full_data(movies, users, ratings, watches, path='app/model/results/content_based_model_full.pkl'):
     content_recommender = ContentBasedRecommender()
     content_recommender.fit(movies, users, ratings, watches)
-    pickle.dump(content_recommender, open('app/model/results/content_based_model_full.pkl', 'wb'))
-    print("Model trained on full data and saved as 'app/model/results/content_based_model_full.pkl'")
-
+    pickle.dump(content_recommender, open(path, 'wb'))
+    print(f"Model trained on full data and saved as '{path}'")
      # Print model metrics
     model_size_bytes = content_recommender.get_model_size()
     print(f"\nModel Metrics:")
@@ -598,7 +628,9 @@ def train_model_full_data(movies, users, ratings, watches):
     print(f"Full Model Size: {model_size_bytes / (1024*1024):.2f} MB")
 
 if __name__ == "__main__":
-    movies, users, ratings, watches = read_data('data/')
+    # NOTE: To train the full model, read_data from data/ or whereever your full data is stored
+    movies, users, ratings, watches = read_data('data_sample/')
     # model = pickle.load(open('app/model/results/content_based_model_full.pkl', 'rb'))
     # run_train_test(movies, users, ratings, watches, train=True, user_specific_test=True)
-    train_model_full_data(movies, users, ratings, watches)
+    train_model_full_data(movies, users, ratings, watches, path='content_based_model_tiny.pkl')
+    
