@@ -2,41 +2,46 @@
   "split_metadata": {
     "test_size": 0.2,
     "split_timestamp": "2025-10-24 04:17:34",
-    "train_ratings": 3715,
-    "test_ratings": 2052,
-    "train_users": 3713,
+    "train_explicit_ratings": 3715,
+    "train_implicit_watches": 28025,
+    "train_combined_interactions": 31679,
+    "test_interactions": 2052,
+    "train_users_from_ratings": 3713,
+    "train_users_from_watches": 19123,
+    "train_users_total": 22628,
     "test_users": 2048,
-    "warm_start_users": 7,
-    "cold_start_users": 2041
+    "warm_start_users": 89,
+    "cold_start_users": 1959,
+    "cold_start_percentage": 95.654296875
   },
   "model_metadata": {
-    "training_time_sec": 13.901695013046265,
+    "training_time_sec": 13.877168893814087,
     "model_size_mb": 4.353507995605469,
     "n_movie_features": 65
   },
   "warm_start_metrics": {
-    "n_users": 7,
-    "n_users_evaluated": 7,
-    "precision_at_k": 0.0,
-    "recall_at_k": 0.0,
-    "ndcg_at_k": 0.0,
-    "hit_rate_at_k": 0.0,
-    "diversity": 0.7,
-    "coverage": 0.09523809523809523,
-    "avg_inference_time_ms": 0.07956368582589286,
-    "std_inference_time_ms": 0.008595089485464497
+    "n_users": 89,
+    "n_users_evaluated": 89,
+    "precision_at_k": 0.005056179775280899,
+    "recall_at_k": 0.10112359550561797,
+    "ndcg_at_k": 0.07196219514652294,
+    "hit_rate_at_k": 0.10112359550561797,
+    "diversity": 0.9,
+    "coverage": 0.453416149068323,
+    "avg_inference_time_ms": 0.0721336750501997,
+    "std_inference_time_ms": 0.005697213811347389
   },
   "cold_start_metrics": {
-    "n_users": 2041,
-    "n_users_evaluated": 2041,
-    "precision_at_k": 0.02337089661930426,
-    "recall_at_k": 0.4669279764821166,
-    "ndcg_at_k": 0.28143982882370766,
-    "hit_rate_at_k": 0.46741793238608526,
-    "diversity": 0.9,
-    "coverage": 0.42028985507246375,
-    "avg_inference_time_ms": 0.4173162694890846,
-    "std_inference_time_ms": 0.07987100370977929
+    "n_users": 1959,
+    "n_users_evaluated": 1959,
+    "precision_at_k": 0.024119448698315466,
+    "recall_at_k": 0.48187850944359367,
+    "ndcg_at_k": 0.2899510236146742,
+    "hit_rate_at_k": 0.48238897396630936,
+    "diversity": 0.7,
+    "coverage": 0.013802622498274672,
+    "avg_inference_time_ms": 0.42256827011225234,
+    "std_inference_time_ms": 0.04157202873989861
   },
   "overall_metrics": {
     "n_users": 2048,
@@ -47,9 +52,9 @@
     "hit_rate_at_k": 0.4658203125,
     "diversity": 0.9,
     "coverage": 0.4554865424430642,
-    "avg_inference_time_ms": 0.40729506872594357,
-    "std_inference_time_ms": 0.07224615885574004
+    "avg_inference_time_ms": 0.40974398143589497,
+    "std_inference_time_ms": 0.07307171365911753
   },
-  "evaluation_timestamp": "2025-10-25T15:03:56.759856",
+  "evaluation_timestamp": "2025-10-26T18:29:55.735022",
   "evaluation_framework": "offline_evaluation.py"
 }
