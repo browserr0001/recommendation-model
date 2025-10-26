@@ -3,5 +3,7 @@
 *__pycache__/
 data/
 app/model/results/
-data_sample/
 *.pkl
+data-pull/test_data/
+data-pull/data/
+!app/model/test/content_based_model_tiny.pkl
