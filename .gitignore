@@ -11,3 +11,5 @@ data-pull/data/
 *.parquet
 data-pull/data/
 !app/model/test/content_based_model_tiny.pkl
+!app/model/test/content_based_model_tiny.pkl
+*.parquet
