@@ -29,4 +29,4 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest -q --maxfail=1 --disable-warnings
+          pytest -q --maxfail=1 --disable-warnings tests
