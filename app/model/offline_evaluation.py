@@ -46,6 +46,7 @@ class OfflineEvaluator:
         self.train_watches = None
         self.test_ratings = None
         self.test_users = None
+        self.train_users_combined = None
 
         # Results
         self.results = {}
@@ -88,38 +89,73 @@ class OfflineEvaluator:
             int(len(self.ratings) * (1 - test_size))
         ]['timestamp']
 
-        # Identify user overlap
-        train_user_set = set(self.train_ratings['user_id'].unique())
+        # Simulate what model.fit() does to get actual training interactions
+        percent_watched = pd.merge(
+            self.train_watches[['movie_id', 'user_id', 'timestamp_end', 'minutes_watched']],
+            self.train_movies[['movie_id', 'runtime']],
+            on='movie_id'
+        )
+        percent_watched = percent_watched[percent_watched['minutes_watched']/percent_watched['runtime'] >= 0.5]
+        percent_watched['rating'] = 3
+        percent_watched.rename(columns={'timestamp_end': 'timestamp'}, inplace=True)
+        watch_subset = percent_watched[['timestamp', 'user_id', 'movie_id', 'rating']]
+
+        # Combine watches with explicit ratings
+        combined_train = pd.concat([watch_subset, self.train_ratings])
+        combined_train_dedup = combined_train.groupby(['user_id', 'movie_id']).last().reset_index()
+
+        # Get all training users (from both ratings and watches)
+        train_users_from_ratings = set(self.train_ratings['user_id'].unique())
+        train_users_from_watches = set(percent_watched['user_id'].unique())
+        train_users_combined = train_users_from_ratings | train_users_from_watches
+
+        # Get test users
         test_user_set = set(self.test_users)
-        warm_start_users = train_user_set & test_user_set
-        cold_start_users = test_user_set - train_user_set
+
+        # Calculate warm/cold start based on ALL training data (not just explicit ratings)
+        warm_start_users = train_users_combined & test_user_set
+        cold_start_users = test_user_set - train_users_combined
 
         print(f"\nSplit timestamp: {split_timestamp}")
+
         print(f"\nTrain set:")
-        print(f"  - Ratings: {len(self.train_ratings)}")
-        print(f"  - Users: {len(self.train_ratings['user_id'].unique())}")
+        print(f"  - Explicit ratings: {len(self.train_ratings)}")
+        print(f"  - Implicit watches (≥50% watched): {len(percent_watched)}")
+        print(f"  - Combined interactions (after deduplication): {len(combined_train_dedup)}")
+        print(f"  - Users (from explicit ratings only): {len(train_users_from_ratings)}")
+        print(f"  - Users (from implicit watches): {len(train_users_from_watches)}")
+        print(f"  - Total unique users (ratings OR watches): {len(train_users_combined)}")
         print(f"  - Movies: {len(self.train_ratings['movie_id'].unique())}")
 
         print(f"\nTest set:")
-        print(f"  - Ratings: {len(self.test_ratings)}")
+        print(f"  - Interactions (ratings + watches): {len(self.test_ratings)}")
         print(f"  - Users: {len(test_user_set)}")
         print(f"  - Movies: {len(self.test_ratings['movie_id'].unique())}")
 
         print(f"\nUser categorization:")
         print(f"  - Warm-start users (in both train & test): {len(warm_start_users)}")
         print(f"  - Cold-start users (only in test): {len(cold_start_users)}")
+        print(f"  - Percentage cold-start: {len(cold_start_users)/len(test_user_set)*100:.2f}%")
 
-        # Store metadata
+        # Store metadata with corrected values
         self.results['split_metadata'] = {
             'test_size': test_size,
             'split_timestamp': str(split_timestamp),
-            'train_ratings': len(self.train_ratings),
-            'test_ratings': len(self.test_ratings),
-            'train_users': len(train_user_set),
+            'train_explicit_ratings': len(self.train_ratings),
+            'train_implicit_watches': len(percent_watched),
+            'train_combined_interactions': len(combined_train_dedup),
+            'test_interactions': len(self.test_ratings),
+            'train_users_from_ratings': len(train_users_from_ratings),
+            'train_users_from_watches': len(train_users_from_watches),
+            'train_users_total': len(train_users_combined),
             'test_users': len(test_user_set),
             'warm_start_users': len(warm_start_users),
-            'cold_start_users': len(cold_start_users)
+            'cold_start_users': len(cold_start_users),
+            'cold_start_percentage': len(cold_start_users)/len(test_user_set)*100
         }
+
+        # Store for use in evaluation
+        self.train_users_combined = train_users_combined
 
     def train_model(self):
         """Train the recommendation model on training data."""
@@ -193,11 +229,15 @@ class OfflineEvaluator:
         print(f"OFFLINE EVALUATION (k={k})")
         print(f"{'='*80}")
 
-        # Separate warm-start and cold-start users
-        train_user_set = set(self.train_ratings['user_id'].unique())
+        # Separate warm-start and cold-start users based on ACTUAL training data
+        # Use train_users_combined which includes both ratings and watches
         test_user_set = set(self.test_users)
-        warm_start_users = list(train_user_set & test_user_set)
-        cold_start_users = list(test_user_set - train_user_set)
+        warm_start_users = list(self.train_users_combined & test_user_set)
+        cold_start_users = list(test_user_set - self.train_users_combined)
+
+        print(f"\nUser classification (based on ALL training data):")
+        print(f"  - Warm-start users: {len(warm_start_users)}")
+        print(f"  - Cold-start users: {len(cold_start_users)}")
 
         # Evaluate both groups
         print("\nEvaluating warm-start users...")
