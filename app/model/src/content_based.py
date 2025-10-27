@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
@@ -12,6 +13,13 @@ import tqdm
 import pyarrow.parquet as pq
 
 def read_data(path_prefix='data/'):
+    # check this folder contains necessary parquet files
+    if not (os.path.exists(f'{path_prefix}meta/movies.parquet')) or \
+            not (os.path.exists(f'{path_prefix}meta/users_new.parquet')) or \
+            not (os.path.exists(f'{path_prefix}ratings/ratings.parquet')) or \
+            not (os.path.exists(f'{path_prefix}watches/watches.parquet')):
+        raise FileNotFoundError("One or more required parquet files are missing in the specified path.")
+
     movies = pq.read_table(f'{path_prefix}meta/movies.parquet').to_pandas()
     users = pq.read_table(f'{path_prefix}meta/users_new.parquet').to_pandas()
     ratings = pq.read_table(f'{path_prefix}ratings/ratings.parquet').to_pandas()
@@ -30,12 +38,15 @@ def read_data(path_prefix='data/'):
     movies['production_companies'] = movies['production_companies'].apply(get_names)
     movies['production_countries'] = movies['production_countries'].apply(get_names)
 
-
     numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
                            'vote_average', 'vote_count']
     for feature in numeric_features:
         movies[feature] = pd.to_numeric(movies[feature], errors='coerce')
 
+    all_features = ['adult', 'budget', 'genres', 'original_language', 'overview',
+                    'popularity', 'production_companies', 'production_countries', 
+                    'release_date', 'release_year'] + numeric_features 
+    assert all(feature in movies.columns for feature in all_features)
     # convert adult to boolean
     movies['adult'] = movies['adult'].astype(bool)
     return movies, users, ratings, watches
@@ -55,7 +66,6 @@ class ContentBasedRecommender:
         self.movies_df:pd.DataFrame = None
         self.all_users:pd.DataFrame = None
         self.ratings_combined:pd.DataFrame = None
-        self.cold_start_user_pipeline:Pipeline = None
 
     def create_movie_profiles(self, movies: pd.DataFrame) -> np.ndarray:
         # Build movie profiles
@@ -160,18 +170,7 @@ class ContentBasedRecommender:
     def create_user_profiles(self, users: pd.DataFrame, movie_features: np.ndarray, top_n=20):
         """Build user profiles with optimized cold-start handling"""
         print("Building user profiles...")
-        
-        # Create user metadata encoder for cold start
-        user_features = ['age', 'gender']
-        self.cold_start_user_pipeline = Pipeline([
-            ('encoder', OneHotEncoder(sparse_output=False, handle_unknown='ignore')),
-            ('scaler', StandardScaler())
-        ])
-        
-        # Extract user features for training the cold start encoder
-        user_meta_features = users[user_features]
-        self.cold_start_user_pipeline.fit(user_meta_features)
-        
+                
         # For existing users, create profiles based on their ratings
         user_profiles = {}
         
@@ -263,6 +262,16 @@ class ContentBasedRecommender:
         ratings_df: DataFrame with user ratings
         watches_df: Optional DataFrame with watch data
         """
+        # Validate input dataframes
+        if movies_df.empty:
+            raise ValueError("movies_df cannot be empty - movie metadata is required to train the model.")
+        
+        if users_df.empty:
+            raise ValueError("users_df cannot be empty - user metadata is required for cold-start handling.")
+        
+        if ratings_df.empty and watches_df.empty:
+            raise ValueError("At least one of ratings_df or watches_df must be non-empty to create user profiles.")
+        
         t_start = time.time()
         self.movies_df = movies_df.copy()
         self.all_users = users_df.copy()
@@ -340,281 +349,8 @@ class ContentBasedRecommender:
             # Approximate since it's a dictionary
             size += sum(profile.nbytes for profile in self.user_profiles.values())
             size += len(self.user_profiles) * 8  # Dictionary overhead
-            
-        # Pipeline size (approximate)
-        if self.cold_start_user_pipeline is not None:
-            # Rough estimate for the pipeline
-            size += 10000  # Base estimate
-            
+
         return size
-
-
-def train_test_split(ratings_df, movies_df, users_df, watches_df, test_size=0.2, mid_rating_watch_over=0.5):
-    """
-    Split the ratings data and watches data into training and test sets based on timestamp.
-    For movies and users, include only those present in the training set.
-    Parameters:
-        ratings_df: DataFrame with user ratings
-        movies_df: DataFrame with movie metadata
-        users_df: DataFrame with user metadata
-        watches_df: DataFrame with user watch history
-        test_size: Proportion of data to use for testing
-    Returns:
-        train_ratings: Training set of ratings
-        test_ratings: Test set of ratings
-        train_movies: Movies present in the training set
-        train_users: Users present in the training set
-        train_watches: Training set of watches
-        test_watches: Test set of watches
-    
-    """
-    # Get the split timestamp based on percentage of all timestamps
-    ratings_df = ratings_df.sort_values('timestamp').reset_index(drop=True)
-    n_total = len(ratings_df)
-    n_test = int(n_total * test_size)
-    n_train = n_total - n_test
-    train_ratings = ratings_df.iloc[:n_train].reset_index(drop=True)
-    test_ratings = ratings_df.iloc[n_train:].reset_index(drop=True)
-
-    split_timestamp = ratings_df.iloc[n_train]['timestamp']
-    print(f"Train-test Split timestamp: {split_timestamp}")
-
-    # Get users and movies in the training set
-    train_user_ids = train_ratings['user_id'].unique()
-    train_movie_ids = train_ratings['movie_id'].unique()
-
-    train_users = users_df[users_df['user_id'].isin(train_user_ids)].reset_index(drop=True)
-    train_movies = movies_df[movies_df['movie_id'].isin(train_movie_ids)].reset_index(drop=True)
-    
-    train_watches = watches_df[watches_df['timestamp_start'] <= split_timestamp].reset_index(drop=True)
-    test_watches = watches_df[watches_df['timestamp_start'] > split_timestamp].reset_index(drop=True)
-
-    test_watch_subset = test_watches[['timestamp_start', 'user_id', 'movie_id']]
-    test_ratings = pd.concat([test_watch_subset, test_ratings]).groupby(['user_id', 'movie_id']).last().reset_index()
-    test_users = test_ratings['user_id'].unique()
-    print(f"Train ratings: {train_ratings.shape}, Test ratings: {test_ratings.shape}")
-    print(f"Train users: {train_users.shape}, Train movies: {train_movies.shape}")
-
-    return train_ratings,  train_movies, train_users, train_watches, test_ratings, test_users
-
-def calculate_accuracy(user_id, recommendations, test_ratings):
-    """
-    Calculate the percentage of recommended movies shows in test_ratings for the user_id.
-    """
-    if user_id not in test_ratings['user_id'].values:
-        return 0.0
-    
-    user_test_movies = test_ratings[test_ratings['user_id'] == user_id]['movie_id'].values
-
-    
-    if len(user_test_movies) == 0:
-        return 0.0
-    
-    hits = np.isin(recommendations, user_test_movies).sum()
-    accuracy = hits / len(recommendations)
-
-    return accuracy
-
-
-def calculate_diversity(rec_ids, movies_df):
-    genres_seen = set()
-    for mid in rec_ids:
-        row = movies_df[movies_df["movie_id"] == mid]
-        if not row.empty:
-            genres = row.iloc[0]["genres"]
-            genres_seen.update(set(genres))
-    return len(genres_seen) / (len(rec_ids) + 1e-9)
-
-def calculate_coverage(all_rec_lists, all_movie_ids):
-    recommended_movies = set()
-    for recs in all_rec_lists:
-        recommended_movies.update(recs)
-    return len(recommended_movies) / len(all_movie_ids)
-
-
-def evaluate_precision(content_recommender:ContentBasedRecommender, users_subset, test_df, movies, k=20):
-
-    metrics = {"precision": [], "recall": [], "ndcg": [], "accuracy": [], "diversity": []}
-    all_rec_lists = []
-    test_relevant = test_df["movie_id"].tolist()
-    print(f"Total test relevant movies: {len(test_relevant)}")
-
-    for user_id in users_subset:
-        test_watched = test_df[test_df["user_id"] == user_id]["movie_id"].tolist()
-
-        if not test_watched:
-            continue
-
-        rec_ids, _ = content_recommender.get_recommendations(user_id, top_n=k, exclude_seen=True)
-        
-        all_rec_lists.append(rec_ids)
-
-        hits_relevant = len(set(rec_ids) & set(test_relevant))
-        hits_watched = len(set(rec_ids) & set(test_watched))
-
-        metrics["precision"].append(hits_relevant / k)
-        metrics["recall"].append(hits_relevant / len(test_relevant) if test_relevant else 0)
-
-        dcg = sum([1/np.log2(i+2) for i, mid in enumerate(rec_ids) if mid in test_relevant])
-        idcg = sum([1/np.log2(i+2) for i in range(min(len(test_relevant), k))])
-        metrics["ndcg"].append(dcg/idcg if idcg > 0 else 0)
-
-        metrics["accuracy"].append(hits_watched / k)
-        metrics["diversity"].append(calculate_diversity(rec_ids, movies))
-
-    results = {m: float(np.mean(v)) for m, v in metrics.items() if v}
-    results["coverage"] = calculate_coverage(all_rec_lists, movies["movie_id"].unique())
-    return results
-
-
-def calculate_recommendation_metrics(user_id, recommendations, test_ratings, train_movies):
-    """
-    Calculate multiple recommendation quality metrics for a user
-    
-    Parameters:
-    user_id: User ID to evaluate
-    recommendations: List of recommended movie_ids
-    test_ratings: DataFrame with test ratings/watches data
-    
-    Returns:
-    dict: Dictionary of metrics including hit_rate, precision@k, recall, ndcg, and diversity
-    """
-    metrics = {}
-    
-    # If user not in test set, return zeros for all metrics
-    if user_id not in test_ratings['user_id'].values:
-        return {
-            'hit_rate': 0.0,
-            'precision': 0.0, 
-            'recall': 0.0,
-            'diversity': 0.0
-        }
-    
-    # Get movies the user interacted with in the test set
-    user_test_movies = test_ratings[test_ratings['user_id'] == user_id]['movie_id'].values
-    
-    if len(user_test_movies) == 0:
-        return {
-            'hit_rate': 0.0, 
-            'precision': 0.0, 
-            'recall': 0.0,
-            'diversity': 0.0
-        }
-    
-    # Calculate hit rate (original accuracy metric)
-    hits = np.isin(recommendations, user_test_movies).sum()
-    metrics['hit_rate'] = hits / len(recommendations)
-    
-    # Calculate precision
-    metrics['precision'] = hits / len(recommendations)
-    
-    # Calculate recall
-    metrics['recall'] = hits / len(user_test_movies)
-    
-    # Calculate recommendation diversity (using genres if available)
-    if train_movies is not None:
-        # Get the genres for recommended movies
-        rec_genres = set()
-        for movie_id in recommendations:
-            movie_data = train_movies[train_movies['movie_id'] == movie_id]
-            if not movie_data.empty and movie_data['genres'].iloc[0] is not None:
-                genres = movie_data['genres'].iloc[0]
-                if isinstance(genres, list):
-                    rec_genres.update(genres)
-        
-        # Diversity is the number of unique genres divided by the average number of genres per movie
-        avg_genres_per_movie = len(rec_genres) / len(recommendations) if len(recommendations) > 0 else 0
-        metrics['diversity'] = len(rec_genres) / (avg_genres_per_movie * 10) if avg_genres_per_movie > 0 else 0
-    else:
-        metrics['diversity'] = 0.0
-    
-
-    return metrics
-
-def calculate_overall_metrics(recommendations_list, train_movies):
-    """
-    Calculate the overall metrics for the recommendation system.
-
-    Parameters:
-    recommendations_list: List of lists of recommended movie_ids for multiple users
-    all_movie_ids: Set or list of all movie_ids in the dataset
-
-    Returns:
-    dict: Dictionary containing overall metrics including coverage and diversity
-    """
-    # Calculate coverage
-    total_num_movies = len(train_movies['movie_id'].unique())
-    recommended_movies = set()
-    for recs in recommendations_list:
-        recommended_movies.update(recs)
-
-    coverage = len(recommended_movies) / total_num_movies if total_num_movies > 0 else 0.0
-    # Calculate diversity
-    all_genres = set()
-    recommended_genres = set()
-    for recs in recommendations_list:
-        for movie_id in recs:
-            movie_data = train_movies[train_movies['movie_id'] == movie_id]
-            if not movie_data.empty and movie_data['genres'].iloc[0] is not None:
-                genres = movie_data['genres'].iloc[0]
-                if isinstance(genres, list):
-                    recommended_genres.update(genres)
-    for genres in train_movies['genres'].dropna():
-        if isinstance(genres, list):
-            all_genres.update(genres)
-
-    diversity = len(recommended_genres) / len(all_genres) if len(all_genres) > 0 else 0.0
-
-    return {
-        'coverage': coverage,
-        'diversity': diversity
-    }
- 
-
-def get_user_metadata(user_id, link="http://128.2.220.241:8080/user"):
-    """
-    Make get request to the link following structure: http://128.2.220.241:8080/user/23469
-    """
-    response = requests.get(f"{link}/{user_id}")
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return None
-
-
-def run_train_test(movies, users, ratings, watches, train=False, user_specific_test=False):
-    train_ratings,  train_movies, train_users, train_watches, test_ratings, test_users = train_test_split(ratings, movies, users, watches, test_size=0.05)
-    # pickle.dump(test_ratings, open('app/model/results/content_based_test_ratings.pkl', 'wb'))
-    if user_specific_test:
-        test_users = pd.read_csv('data/test_users_all.csv')['user_id'].unique()
-    test_df = test_ratings[test_ratings['user_id'].isin(test_users)].reset_index(drop=True)
-    print(f"Test users: {test_df['user_id'].nunique()}")
-    
-    if train: 
-        content_recommender = ContentBasedRecommender()
-        # Fit the model on the training data
-        content_recommender.fit(train_movies, users, train_ratings, train_watches)
-        pickle.dump(content_recommender, open('app/model/results/content_based_model.pkl', 'wb'))
-
-    else:
-        content_recommender = pickle.load(open('app/model/results/content_based_model.pkl', 'rb'))
-
-    results = evaluate_precision(content_recommender, test_users, test_df, movies, k=20)
-    print(f"\nEvaluation Results on Test Set:")
-    print(results)
-    
-    # Print model metrics
-    model_size_bytes = content_recommender.get_model_size()
-    print(f"\nModel Metrics:")
-    print(f"Training Time: {content_recommender.training_time:.2f} seconds")
-    print(f"Model Size: {model_size_bytes / (1024*1024):.2f} MB")
-    results['model_size_mb'] = model_size_bytes / (1024*1024)
-    results['training_time_sec'] = content_recommender.training_time
-
-    with open('app/model/content_based_evaluation_results.json', 'w') as f:
-        json.dump(results, f, indent=4)
-    return results, model_size_bytes, content_recommender.training_time
-
 
 def train_model_full_data(movies, users, ratings, watches, path='app/model/results/content_based_model_full.pkl'):
     content_recommender = ContentBasedRecommender()
@@ -630,7 +366,5 @@ def train_model_full_data(movies, users, ratings, watches, path='app/model/resul
 if __name__ == "__main__":
     # NOTE: To train the full model, read_data from data/ or whereever your full data is stored
     movies, users, ratings, watches = read_data('data_sample/')
-    # model = pickle.load(open('app/model/results/content_based_model_full.pkl', 'rb'))
-    # run_train_test(movies, users, ratings, watches, train=True, user_specific_test=True)
     train_model_full_data(movies, users, ratings, watches, path='content_based_model_tiny.pkl')
     
