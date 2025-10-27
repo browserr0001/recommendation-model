@@ -10,7 +10,58 @@ import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-from content_based import ContentBasedRecommender, train_test_split, read_data
+from content_based import ContentBasedRecommender, read_data
+
+
+def train_test_split(ratings_df, movies_df, users_df, watches_df, test_size=0.2, mid_rating_watch_over=0.5):
+    """
+    Split the ratings data and watches data into training and test sets based on timestamp.
+    For movies and users, include only those present in the training set.
+
+    Parameters:
+        ratings_df: DataFrame with user ratings
+        movies_df: DataFrame with movie metadata
+        users_df: DataFrame with user metadata
+        watches_df: DataFrame with user watch history
+        test_size: Proportion of data to use for testing
+        mid_rating_watch_over: Threshold for considering a watch as a rating (not used in current implementation)
+
+    Returns:
+        train_ratings: Training set of ratings
+        train_movies: Movies present in the training set
+        train_users: Users present in the training set
+        train_watches: Training set of watches
+        test_ratings: Test set of ratings (includes watches)
+        test_users: Users present in the test set
+    """
+    # Get the split timestamp based on percentage of all timestamps
+    ratings_df = ratings_df.sort_values('timestamp').reset_index(drop=True)
+    n_total = len(ratings_df)
+    n_test = int(n_total * test_size)
+    n_train = n_total - n_test
+    train_ratings = ratings_df.iloc[:n_train].reset_index(drop=True)
+    test_ratings = ratings_df.iloc[n_train:].reset_index(drop=True)
+
+    split_timestamp = ratings_df.iloc[n_train]['timestamp']
+    print(f"Train-test Split timestamp: {split_timestamp}")
+
+    # Get users and movies in the training set
+    train_user_ids = train_ratings['user_id'].unique()
+    train_movie_ids = train_ratings['movie_id'].unique()
+
+    train_users = users_df[users_df['user_id'].isin(train_user_ids)].reset_index(drop=True)
+    train_movies = movies_df[movies_df['movie_id'].isin(train_movie_ids)].reset_index(drop=True)
+
+    train_watches = watches_df[watches_df['timestamp_start'] <= split_timestamp].reset_index(drop=True)
+    test_watches = watches_df[watches_df['timestamp_start'] > split_timestamp].reset_index(drop=True)
+
+    test_watch_subset = test_watches[['timestamp_start', 'user_id', 'movie_id']]
+    test_ratings = pd.concat([test_watch_subset, test_ratings]).groupby(['user_id', 'movie_id']).last().reset_index()
+    test_users = test_ratings['user_id'].unique()
+    print(f"Train ratings: {train_ratings.shape}, Test ratings: {test_ratings.shape}")
+    print(f"Train users: {train_users.shape}, Train movies: {train_movies.shape}")
+
+    return train_ratings, train_movies, train_users, train_watches, test_ratings, test_users
 
 
 class OfflineEvaluator:
