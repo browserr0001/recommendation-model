@@ -1,7 +1,6 @@
 import os
 import pickle
-import sys
-from model.src.content_based import ContentBasedRecommender
+from app.model.src.content_based import ContentBasedRecommender
 
 class ForceImportUnpickler(pickle.Unpickler):
     def find_class(self, module, name):

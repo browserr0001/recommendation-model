@@ -1,5 +1,5 @@
 from flask import Flask, Response, request, jsonify
-from model_loader import get_model
+from app.model_loader import get_model
 # from model.src.content_based import get_user_metadata
 from functools import wraps
 from collections import defaultdict

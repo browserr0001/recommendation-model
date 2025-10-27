@@ -25,8 +25,8 @@ jobs:
           pip install -r requirements.txt
           if [ -f tests/requirements-dev.txt ]; then pip install -r tests/requirements-dev.txt; fi
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest -q --maxfail=1 --disable-warnings tests
+          pytest --maxfail=1 --disable-warnings --cov=app --cov-report=term-missing tests
