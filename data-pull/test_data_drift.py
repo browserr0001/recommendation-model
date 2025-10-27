@@ -12,6 +12,8 @@ import os
 import json
 import pandas as pd
 from confluent_kafka import KafkaError
+from scipy.stats import entropy
+import numpy as np
 # Import from data_pull.py
 import data_pull
 from data_pull import (
@@ -97,16 +99,70 @@ def get_data_stats(rating_path, watch_agg_path, movies_path, users_path) -> dict
             "demographics_stats": demographics_stats,
         },
     }
+def check_distribution_drift_kl(before_dist: dict, after_dist: dict, threshold: float = 0.1) -> tuple:
+    """
+    Use KL divergence to detect distribution drift.
+    
+    Args:
+        before_dist: Dictionary of category proportions from before
+        after_dist: Dictionary of category proportions from after
+        threshold: KL divergence threshold (default 0.1)
+    
+    Returns:
+        (is_drift: bool, kl_divergence: float)
+    """
+    # Align the keys
+    all_keys = set(before_dist.keys()).union(set(after_dist.keys()))
+    
+    before_values = np.array([before_dist.get(k, 1e-10) for k in sorted(all_keys)])
+    after_values = np.array([after_dist.get(k, 1e-10) for k in sorted(all_keys)])
+    
+    # Normalize
+    before_values = before_values / before_values.sum()
+    after_values = after_values / after_values.sum()
+    
+    # Add small epsilon to avoid log(0)
+    epsilon = 1e-10
+    before_values = np.maximum(before_values, epsilon)
+    after_values = np.maximum(after_values, epsilon)
+    
+    # Calculate KL divergence
+    kl_div = entropy(after_values, before_values)
+    
+    is_drift = bool(kl_div > threshold)
+    
+    return is_drift, kl_div
 
-
-def save_statistics(stats:dict) -> None:
+def save_statistics(stats:dict, threshold=0.5) -> None:
     print(json.dumps(stats, indent=4))
 
     # load the json file and append the new stats
     with open(STATS_PATH, "r") as f:
         stats_before = json.load(f)
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    # check if stats_before is empty, if not empty calculate the percentage change
+    if stats_before:
+        # Calculate percentage change for each dataset
+        map_stats = {'ratings': 'avg_rating_per_user', 'watches': 'avg_minutes_per_user', 'users': 'demographics_stats'}
+        for dataset, key in map_stats.items():
+            if dataset in stats_before[list(stats_before.keys())[-1]]:
+                before_value = stats_before[list(stats_before.keys())[-1]][dataset].get(key, 0)
+                after_value = stats[dataset].get(key, 0)
+                if isinstance(before_value, dict) and isinstance(after_value, dict):
+                    # For demographics_stats which is a dict
+                    is_drift, kl_div = check_distribution_drift_kl(before_value, after_value, threshold=threshold)
+                    stats[dataset][f"{key}_kl_divergence"] = kl_div
+                    stats[dataset][f"{key}_is_drift"] = is_drift
+                else:
+                    # For single numeric values
+                    if before_value != 0:
+                        change = ((after_value - before_value) / before_value) * 100
+                    else:
+                        change = float('inf')  # Infinite change if before value is 0
+                    stats[dataset][f"{key}_pct_change"] = change
+                    stats[dataset][f"{key}_is_drift"] = abs(change) > threshold * 100
     stats_before[timestamp] = stats
+
     with open(STATS_PATH, "w") as f:
         json.dump(stats_before, f, indent=4)
 
