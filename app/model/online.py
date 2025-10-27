@@ -7,10 +7,11 @@ import os
 import numpy as np
 from datetime import datetime
 from dateutil import parser
-import pickle
 import pandas as pd
+import csv
+from pathlib import Path
 
-
+# ---------------- CONFIGURATION ----------------------
 
 KAFKA_BROKER = "localhost:9092"
 TOPIC = "movielog8"
@@ -20,16 +21,17 @@ WINDOW_SIZE = 3000         # number of recent recs to keep
 CTR_LOOKAHEAD = 1800       # seconds (30-min window for CTR)
 OUTPUT_JSON = "metrics/online_evaluation_live.json"
 
-MIN_RATINGS = 5            # threshold for warm-start (behavioral)
-MIN_MINUTES = 30           # threshold for warm-start (behavioral)
+MIN_RATINGS = 5            # threshold for warm-start
+MIN_MINUTES = 30           # threshold for warm-start
 CATALOG_SIZE = 1000        # approximate unique movies
 
+# ---------------- PATTERN DEFINITIONS ----------------
 
 rec_pattern = re.compile(r'^(.*?),(\d+),recommendation request.*?result: (.+?), (\d+) ms')
 watch_pattern = re.compile(r'^(.*?),(\d+),GET /data/m/(.+?)/(\d+)\.mpg')
 rating_pattern = re.compile(r'^(.*?),(\d+),GET /rate/(.+)=(\d+)')
 
-
+# ---------------- STATE STORAGE ----------------------
 
 recommendations = deque(maxlen=WINDOW_SIZE)   # (ts, user_id, recs)
 user_watched = defaultdict(list)
@@ -50,7 +52,7 @@ try:
 except Exception as e:
     print("Could not load training user IDs:", e)
 
-
+# ---------------- HELPER FUNCTIONS -------------------
 
 def parse_time(ts: str) -> int:
     try:
@@ -117,7 +119,6 @@ def process_line(line: str):
         rating_sum += r
         rating_count += 1
         return
-
 
 
 def evaluate_user(user_id: int, recs: list, cohort: str, rec_time: int, k: int = 20):
@@ -211,7 +212,38 @@ def aggregate_metrics_all():
     payload["users_tracked"] = len(user_watched)
     return payload
 
+# --------------- PERSISTENCE FUNCTION ----------------
 
+def persist_metrics(metrics):
+    """Append current metrics snapshot to JSON and CSV history files."""
+    timestamp = metrics.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    json_path = Path("metrics/online_evaluation_history.json")
+    csv_path = Path("metrics/online_evaluation_history.csv")
+
+    # --- JSON append ---
+    history = []
+    if json_path.exists():
+        try:
+            history = json.loads(json_path.read_text())
+        except Exception:
+            pass
+    history.append(metrics)
+    json_path.write_text(json.dumps(history, indent=2))
+
+    # --- CSV append ---
+    with csv_path.open("a", newline="") as f:
+        writer = csv.writer(f)
+        if f.tell() == 0:
+            writer.writerow(["timestamp", "cohort", "precision@K", "recall@K", "ctr", "diversity", "coverage"])
+        for cohort in ["all", "warm", "cold"]:
+            vals = metrics[cohort]
+            writer.writerow([
+                timestamp, cohort,
+                vals["precision@K"], vals["recall@K"],
+                vals["ctr"], vals["diversity"], vals["coverage"]
+            ])
+
+# ---------------- STREAMING LOOP ---------------------
 
 def stream_and_analyze():
     os.makedirs(os.path.dirname(OUTPUT_JSON), exist_ok=True)
@@ -221,7 +253,7 @@ def stream_and_analyze():
     consumer = Consumer(conf)
     consumer.subscribe([TOPIC])
 
-    print(f" Connected to Kafka topic '{TOPIC}' on {KAFKA_BROKER}")
+    print(f"Connected to Kafka topic '{TOPIC}' on {KAFKA_BROKER}")
     print("Starting real-time online evaluation... (Ctrl+C to stop)\n")
     last_print = time.time()
 
@@ -255,6 +287,9 @@ def stream_and_analyze():
 
                 with open(OUTPUT_JSON, "w") as f:
                     json.dump(metrics, f, indent=2)
+
+                # Persist metrics to history for reviewability
+                persist_metrics(metrics)
 
     except KeyboardInterrupt:
         print("\nStopping stream...")
