@@ -8,3 +8,6 @@ data-pull/test_data/
 data-pull/data/
 !app/model/test/content_based_model_tiny.pkl
 *.parquet
+*.parquet
+data-pull/data/
+!app/model/test/content_based_model_tiny.pkl
