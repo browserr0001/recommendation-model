@@ -8,9 +8,10 @@ import sys
 import time
 import threading
 from pathlib import Path
-
+import os
+import json
 import pandas as pd
-
+from confluent_kafka import KafkaError
 # Import from data_pull.py
 import data_pull
 from data_pull import (
@@ -39,7 +40,7 @@ WATCH_AGG_PATH = data_pull.WATCH_AGG_PATH
 MOVIES_PATH = data_pull.MOVIES_PATH
 USERS_PATH = data_pull.USERS_PATH
 
-
+STATS_PATH = 'data_drift.json'
 
 
 def configure_logging() -> None:
@@ -52,33 +53,39 @@ def configure_logging() -> None:
 
 def get_data_stats(rating_path, watch_agg_path, movies_path, users_path) -> dict:
     """Get statistics about a list of parquet files."""
+    # check if files exist and read them
+    if not rating_path.exists() or not watch_agg_path.exists() or not movies_path.exists() or not users_path.exists():
+        return {
+            "ratings": {"exists": rating_path.exists(), "rows": 0},
+            "watches": {"exists": watch_agg_path.exists(), "rows": 0},
+            "movies": {"exists": movies_path.exists(), "rows": 0},
+            "users": {"exists": users_path.exists(), "rows": 0},
+        }
     ratings_df = pd.read_parquet(rating_path) if rating_path.exists() else pd.DataFrame()
     watches_df = pd.read_parquet(watch_agg_path) if watch_agg_path.exists() else pd.DataFrame()
     movies_df = pd.read_parquet(movies_path) if movies_path.exists() else pd.DataFrame()
     users_df = pd.read_parquet(users_path) if users_path.exists() else pd.DataFrame()
 
-    # Join watches with users and movies to get complete watch records
-    merged_watches = watches_df.merge(users_df, on="user_id", how="left").merge(movies_df, on="movie_id", how="left")   
-    # Join ratings with users and movies to get complete rating records
-    merged_ratings = ratings_df.merge(users_df, on="user_id", how="left").merge(movies_df, on="movie_id", how="left")
     # Calculate stats
     # Calculate average number of minutes watched per user
-    avg_minutes_per_user = merged_watches.groupby("user_id").count().mean() if not merged_watches.empty else 0
+    avg_minutes_per_user = watches_df.groupby("user_id")['minutes_watched'].sum().mean() if not watches_df.empty else 0
     # Calculate average rating per user
-    avg_rating_per_user = merged_ratings.groupby("user_id")["rating"].mean().mean() if not merged_ratings.empty else 0
+    avg_rating_per_user = ratings_df.groupby("user_id")["rating"].mean().mean() if not ratings_df.empty else 0
     # Calculate User demographics stats by gender and age group 
     users_df['age_group'] = (users_df['age'] // 10) * 10
     demographics_stats = users_df.groupby(['gender', 'age_group']).size().to_dict() if not users_df.empty else {}
+    demographics_stats = {f"{k[0]}_{k[1]}": v/len(users_df) for k, v in demographics_stats.items()}
+
     return {
         "ratings": {
             "exists": rating_path.exists(),
             "rows": len(ratings_df),
-            "avg_rating_per_user": avg_rating_per_user,
+            "avg_rating_per_user": float(avg_rating_per_user),
         },
         "watches": {
             "exists": watch_agg_path.exists(),
             "rows": len(watches_df),
-            "avg_minutes_per_user": avg_minutes_per_user,
+            "avg_minutes_per_user": float(avg_minutes_per_user),
         },  
         "movies": {
             "exists": movies_path.exists(),
@@ -92,35 +99,16 @@ def get_data_stats(rating_path, watch_agg_path, movies_path, users_path) -> dict
     }
 
 
+def save_statistics(stats:dict) -> None:
+    print(json.dumps(stats, indent=4))
 
-
-def print_statistics(before_stats: dict, after_stats: dict) -> None:
-    """Print statistics about data collected."""
-    print("\n" + "="*60)
-    print("DATA COLLECTION SUMMARY")
-    print("="*60)
-    
-    for key in ["ratings", "watches", "movies", "users"]:
-        before = before_stats[key]
-        after = after_stats[key]
-        
-        if not after["exists"]:
-            print(f"\n{key.upper()}: No data file created")
-            continue
-            
-        rows_before = before.get("rows", 0)
-        rows_after = after.get("rows", 0)
-        new_rows = rows_after - rows_before
-        
-        print(f"\n{key.upper()}:")
-        print(f"  Rows before: {rows_before:,}")
-        print(f"  Rows after:  {rows_after:,}")
-        print(f"  New rows:    {new_rows:,}")
-        
-        if "error" in after:
-            print(f"  Error: {after['error']}")
-    
-    print("\n" + "="*60)
+    # load the json file and append the new stats
+    with open(STATS_PATH, "r") as f:
+        stats_before = json.load(f)
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    stats_before[timestamp] = stats
+    with open(STATS_PATH, "w") as f:
+        json.dump(stats_before, f, indent=4)
 
 
 def run_data_collection(duration_minutes: float) -> None:
@@ -134,7 +122,14 @@ def run_data_collection(duration_minutes: float) -> None:
     
     # Get statistics before collection
     print(f"\nStarting data collection for {duration_minutes} minute(s)...")
-    before_stats = get_data_stats(RATINGS_PATH, WATCH_AGG_PATH, MOVIES_PATH, USERS_PATH)
+
+    # clear data_drift.json if exists
+    if os.path.exists(STATS_PATH):
+        os.remove(STATS_PATH)
+
+    # create the file again
+    with open(STATS_PATH, "w") as f:
+        json.dump({}, f)
 
     # Clear the data for fresh statistics
     for path in [RATINGS_PATH, WATCH_AGG_PATH, MOVIES_PATH, USERS_PATH]:
@@ -158,61 +153,64 @@ def run_data_collection(duration_minutes: float) -> None:
     # Create ingestor
     ingestor = DataIngestor(config)
     
-    # Set up timer to stop after duration
-    def stop_after_duration():
-        time.sleep(duration_minutes * 60)
-        logging.info(f"Duration of {duration_minutes} minute(s) reached. Stopping...")
-        ingestor.shutdown_flag.set()
-    
-    timer = threading.Timer(duration_minutes * 60, stop_after_duration)
-    timer.start()
-    
     # Run the ingestor
     start_time = time.time()
+    last_stats_time = start_time
+    interval_seconds = duration_minutes * 60
+    
     try:
-        logging.info("Starting Kafka consumer...")
+        logging.info("Starting data collection...")
+        
         while not ingestor.shutdown_flag.is_set():
             messages = ingestor.consumer.consume(
-                num_messages=config.kafka_batch_size,
-                timeout=config.poll_timeout,
+                num_messages=ingestor.config.kafka_batch_size,
+                timeout=ingestor.config.poll_timeout,
             )
-            
             if not messages:
                 ingestor._maybe_flush(force=False)
-                continue
+            else:
+                for msg in messages:
+                    if msg is None:
+                        continue
+                    if msg.error():
+                        if msg.error().code() == KafkaError._PARTITION_EOF:
+                            continue
+                        logging.error("Kafka error: %s", msg.error())
+                        continue
+                    ingestor.buffer_messages.append(msg)
+                ingestor._maybe_flush(force=False)
             
-            for msg in messages:
-                if msg is None:
-                    continue
-                if msg.error():
-                    continue
-                ingestor.buffer_messages.append(msg)
+            # Check if it's time to output statistics
+            current_time = time.time()
+            elapsed_since_last_stats = current_time - last_stats_time
             
-            ingestor._maybe_flush(force=False)
-            
-            # Print progress every 30 seconds
-            elapsed = time.time() - start_time
-            if int(elapsed) % 30 == 0 and len(ingestor.buffer_messages) > 0:
-                logging.info(
-                    f"Progress: {elapsed/60:.1f}/{duration_minutes} min, "
-                    f"buffered: {len(ingestor.buffer_messages)} messages"
-                )
-    
+            if elapsed_since_last_stats >= interval_seconds:
+                # Flush any pending data before collecting stats
+                ingestor._maybe_flush(force=True)
+                
+                # Get statistics after collecting for duration_minutes
+                after_stats = get_data_stats(RATINGS_PATH, WATCH_AGG_PATH, MOVIES_PATH, USERS_PATH)
+                after_stats["collection_duration_minutes"] = duration_minutes
+
+                # Print and save summary
+                logging.info(f"Outputting statistics after {duration_minutes} minute(s) of collection")
+                save_statistics(after_stats)
+                
+                # Clear the data for fresh statistics for the next interval
+                for path in [RATINGS_PATH, WATCH_AGG_PATH, MOVIES_PATH, USERS_PATH]:
+                    if path.exists():
+                        path.unlink()
+                
+                # Reset the timer for the next interval
+                last_stats_time = current_time
     except KeyboardInterrupt:
-        logging.info("Interrupted by user.")
-    finally:
-        timer.cancel()
-        logging.info("Flushing final buffers...")
+        logging.info("Interrupt received; flushing buffers before exit.")
+        ingestor.shutdown_flag.set()
         ingestor._maybe_flush(force=True)
+    finally:
         ingestor.consumer.close()
-    
-    # Get statistics after collection
-    after_stats = get_data_stats(RATINGS_PATH, WATCH_AGG_PATH, MOVIES_PATH, USERS_PATH)
-    
-    # Print summary
-    elapsed_time = time.time() - start_time
-    print(f"\nData collection completed in {elapsed_time/60:.2f} minutes")
-    print_statistics(before_stats, after_stats)
+        logging.info("Consumer closed. Shutdown complete.")
+        time.sleep(2)  # Wait for any final flushes
 
 
 def main():
@@ -225,7 +223,7 @@ def main():
     parser.add_argument(
         "--duration",
         type=float,
-        default=0.1,
+        default=5.0,
         help="Duration in minutes to collect data (default: 5.0)",
     )
     
