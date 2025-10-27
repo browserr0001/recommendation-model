@@ -32,7 +32,7 @@ jobs:
           mkdir -p tmp
           export TMPDIR=$PWD/tmp
           pytest --maxfail=1 --disable-warnings tests \
-            --cov=app --cov=data_pull \
+            --cov=app --cov=data-pull \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --cov-report=html:coverage_html
