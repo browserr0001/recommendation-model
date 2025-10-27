@@ -10,8 +10,7 @@ import os
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-from content_based import ContentBasedRecommender, train_test_split
-from read_data import read_data
+from content_based import ContentBasedRecommender, train_test_split, read_data
 
 
 class OfflineEvaluator:
