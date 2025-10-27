@@ -1,28 +1,34 @@
 """
-Unit tests for Online Evaluation pipeline (app/model/online_eval.py)
-Covers parsing, cohort classification, metric computation,
-CTR/diversity aggregation, and output generation.
+Comprehensive unit tests for Online Evaluation pipeline (app/model/online_eval.py)
+Covers:
+- Time parsing, cohort classification, metric computation
+- CTR/diversity aggregation and persistence
+- Regex-based log parsing and state updates (reviewability)
 """
 
 import pytest
 import numpy as np
 import time
+import json
+import os
+import csv
 from datetime import datetime
 from collections import defaultdict, deque
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from importlib.machinery import SourceFileLoader
 
+# ------- LOAD TARGET MODULE DYNAMICALLY --------------
 
-# Compute project root (two levels up from this test file)
+# Compute project root (two levels up from this file)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Path to your online evaluation module
-ONLINE_EVAL_PATH = PROJECT_ROOT / "app" / "model" / "online_eval.py"
+ONLINE_EVAL_PATH = PROJECT_ROOT / "app" / "model" / "online.py"
 
 # Dynamically load the module
 online_eval = SourceFileLoader("online_eval_module", str(ONLINE_EVAL_PATH)).load_module()
 
-# Import functions and globals from the dynamically loaded module
+# Import functions and globals from dynamically loaded module
 parse_time = online_eval.parse_time
 cohort_for_rec = online_eval.cohort_for_rec
 process_line = online_eval.process_line
@@ -30,6 +36,7 @@ evaluate_user = online_eval.evaluate_user
 compute_ctr_by_cohort = online_eval.compute_ctr_by_cohort
 diversity_coverage_by_cohort = online_eval.diversity_coverage_by_cohort
 aggregate_metrics_all = online_eval.aggregate_metrics_all
+persist_metrics = online_eval.persist_metrics
 
 metrics_buffer = online_eval.metrics_buffer
 user_watched = online_eval.user_watched
@@ -39,6 +46,7 @@ user_minutes_watched = online_eval.user_minutes_watched
 recommendations = online_eval.recommendations
 MODEL_KNOWN_USERS = online_eval.MODEL_KNOWN_USERS
 
+# ----------- HELPER FIXTURES / RESET STATE -----------
 
 @pytest.fixture(autouse=True)
 def reset_state():
@@ -54,7 +62,8 @@ def reset_state():
     MODEL_KNOWN_USERS.clear()
     yield
 
-"""UNIT TESTS"""
+
+# ------------------ UNIT TESTS -----------------------
 
 def test_parse_time_valid_formats():
     """Ensure different time formats parse to epoch correctly."""
@@ -62,7 +71,7 @@ def test_parse_time_valid_formats():
     ts2 = "Oct 26 2025 5:25PM"
     epoch1 = parse_time(ts1)
     epoch2 = parse_time(ts2)
-    # Allow broad tolerance for timezone differences
+    # Allow tolerance for timezone differences
     assert abs(epoch1 - epoch2) < 120
 
 
@@ -122,7 +131,6 @@ def test_evaluate_user_no_hits_returns_zero():
     rec_time = 200
     user_watched[uid] = [(50, "A")]  # all before rec_time
     evaluate_user(uid, recs, "all", rec_time)
-    # If no "watched_after" movies, function exits early
     if metrics_buffer["all"]["precision"]:
         assert metrics_buffer["all"]["precision"][-1] == 0
     else:
@@ -168,7 +176,6 @@ def test_diversity_and_coverage_basic():
 
 def test_aggregate_metrics_all_output_structure():
     """Ensure output JSON has expected keys and proper types."""
-    # Manually populate buffers
     for c in ["all", "warm", "cold"]:
         metrics_buffer[c]["precision"].append(0.5)
         metrics_buffer[c]["recall"].append(0.7)
@@ -202,11 +209,9 @@ def test_process_line_recommendation_updates_metrics(monkeypatch):
     """Mock recommendation log line and verify metrics update."""
     test_line = "2025-10-26 17:25:57,42,recommendation request ... result: M1, M2, 120 ms"
 
-    # Mock cohort_for_rec to always return "warm"
     monkeypatch.setattr("online_eval_module.cohort_for_rec", lambda x: "warm")
 
     process_line(test_line)
-    # Verify inference time recorded
     assert len(metrics_buffer["warm"]["inference_time"]) == 1
     assert isinstance(metrics_buffer["warm"]["inference_time"][0], int)
 
@@ -236,9 +241,6 @@ def test_invalid_line_does_not_crash():
 
 def test_aggregate_metrics_all_avg_rating_computation(monkeypatch):
     """Validate avg_rating calculation."""
-    from online_eval_module import rating_sum, rating_count
-
-    # Patch global variables
     monkeypatch.setattr("online_eval_module.rating_sum", 40)
     monkeypatch.setattr("online_eval_module.rating_count", 10)
 
@@ -248,3 +250,57 @@ def test_aggregate_metrics_all_avg_rating_computation(monkeypatch):
     result = aggregate_metrics_all()
     assert result["avg_rating"] == 4.0
     assert isinstance(result["timestamp"], str)
+
+
+# ---------------- PERSISTENCE TESTS ------------------
+
+def test_persist_metrics_creates_json_and_csv(tmp_path):
+    """Ensure persist_metrics() writes to both JSON and CSV files."""
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
+
+    metrics = {
+        "timestamp": "2025-10-27 15:00:00",
+        "all": {"precision@K": 0.1, "recall@K": 0.2, "ctr": 0.05, "diversity": 0.3, "coverage": 0.1},
+        "warm": {"precision@K": 0.15, "recall@K": 0.25, "ctr": 0.06, "diversity": 0.31, "coverage": 0.11},
+        "cold": {"precision@K": 0.12, "recall@K": 0.22, "ctr": 0.04, "diversity": 0.29, "coverage": 0.09},
+        "avg_rating": 3.8,
+        "users_tracked": 10
+    }
+
+    cwd = os.getcwd()
+    os.chdir(metrics_dir.parent)
+
+    persist_metrics(metrics)
+
+    json_path = Path("metrics/online_evaluation_history.json")
+    csv_path = Path("metrics/online_evaluation_history.csv")
+    assert json_path.exists()
+    assert csv_path.exists()
+
+    data = json.loads(json_path.read_text())
+    assert isinstance(data, list) and len(data) == 1
+    assert data[0]["all"]["precision@K"] == 0.1
+
+    csv_lines = csv_path.read_text().strip().splitlines()
+    assert len(csv_lines) >= 2
+
+    os.chdir(cwd)
+
+
+# ------------- PARSER REVIEWABILITY TEST -------------
+
+
+def test_process_line_parsers_with_canned_logs():
+    """Validate regex-based parsing with canned logs."""
+    rec_line = "2025-10-26 17:25:57,42,recommendation request ... result: M1, M2, 150 ms"
+    process_line(rec_line)
+    assert any(metrics_buffer[c]["inference_time"] for c in ["all", "warm", "cold"])
+
+    watch_line = "2025-10-26 17:30:00,42,GET /data/m/M1/25.mpg"
+    process_line(watch_line)
+    assert 42 in user_watched
+
+    rating_line = "2025-10-26 17:32:00,42,GET /rate/M1=5"
+    process_line(rating_line)
+    assert user_rating_counts[42] == 1
