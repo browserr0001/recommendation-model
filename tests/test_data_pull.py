@@ -6,7 +6,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_PULL_PATH = PROJECT_ROOT / "data-pull" / "data_pull.py"
 
-data_pull = SourceFileLoader("data_pull_module", str(DATA_PULL_PATH)).load_module()
+data_pull = SourceFileLoader("data_pull", str(DATA_PULL_PATH)).load_module()
 
 
 # ---------------------------------------------------------------------------
