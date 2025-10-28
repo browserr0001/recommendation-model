@@ -1,38 +1,38 @@
 {
   "all": {
-    "precision@K": 0.0333,
-    "recall@K": 0.6667,
-    "ndcg@K": 0.4775,
-    "hit_rate@K": 0.6667,
-    "ctr": 0.0992,
-    "diversity": 4.4434,
-    "coverage": 0.0768,
-    "avg_inference_time_ms": 104.23,
-    "std_inference_time_ms": 36.02
+    "precision@K": 0.0346,
+    "recall@K": 0.6923,
+    "ndcg@K": 0.4162,
+    "hit_rate@K": 0.6923,
+    "ctr": 0.1167,
+    "diversity": 4.5556,
+    "coverage": 0.0766,
+    "avg_inference_time_ms": 99.04,
+    "std_inference_time_ms": 35.24
   },
   "warm": {
-    "precision@K": 0.025,
-    "recall@K": 0.5,
-    "ndcg@K": 0.5,
-    "hit_rate@K": 0.5,
-    "ctr": 0.2492,
-    "diversity": 0.1379,
-    "coverage": 0.1368,
-    "avg_inference_time_ms": 104.84,
-    "std_inference_time_ms": 34.93
+    "precision@K": 0.0333,
+    "recall@K": 0.6667,
+    "ndcg@K": 0.4059,
+    "hit_rate@K": 0.6667,
+    "ctr": 0.1671,
+    "diversity": 1.2819,
+    "coverage": 0.1132,
+    "avg_inference_time_ms": 90.73,
+    "std_inference_time_ms": 34.38
   },
   "cold": {
     "precision@K": 0.04,
     "recall@K": 0.8,
     "ndcg@K": 0.4595,
     "hit_rate@K": 0.8,
-    "ctr": 0.0956,
-    "diversity": 4.3771,
-    "coverage": 0.0772,
-    "avg_inference_time_ms": 104.22,
-    "std_inference_time_ms": 36.04
+    "ctr": 0.1137,
+    "diversity": 3.693,
+    "coverage": 0.0803,
+    "avg_inference_time_ms": 101.3,
+    "std_inference_time_ms": 35.13
   },
-  "avg_rating": 3.849,
-  "timestamp": "2025-10-26 17:39:37",
-  "users_tracked": 87405
+  "avg_rating": 3.857,
+  "timestamp": "2025-10-26 22:19:43",
+  "users_tracked": 168500
 }
