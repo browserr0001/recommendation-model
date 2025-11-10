@@ -4,9 +4,13 @@ from app.model_loader import get_model
 from functools import wraps
 from collections import defaultdict
 import time
+import os
 
 app = Flask(__name__)
 model = get_model()
+
+# Get backend container name for logging
+BACKEND_NAME = os.environ.get("BACKEND_NAME", "unknown-backend")
 
 # For logging
 # For logging - use global counters instead of per-endpoint
@@ -40,6 +44,7 @@ def log_request(f):
         
         # Enhanced logging output with global counters
         print(f"[{endpoint}] Total Requests: {total_requests}, "
+              f"Backend: {BACKEND_NAME}, "
               f"Request Time: {request_duration:.3f}s, "
               f"Inference time: {inference_time:.3f}s, "
               f"user_id: {user_id_log}"
@@ -54,7 +59,7 @@ def log_request(f):
 
 @app.route('/api', methods=['GET'])
 def test():
-    return Response("Movie Recommendation API is running.", mimetype='text/plain')
+    return Response(f"Movie Recommendation API is running on {BACKEND_NAME}.", mimetype='text/plain')
 
 
 @app.route('/recommend/<userid>', methods=['GET'])
@@ -79,4 +84,5 @@ def recommend(userid):
     return Response(result, mimetype='text/plain')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8082, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)

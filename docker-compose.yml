@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  # Backend instance A: first model
+  backend-a:
+    build: .
+    container_name: recommender-backend-a
+    environment:
+      - PORT=5000
+      - BACKEND_NAME=backend-A
+    expose:
+      - "5000"
+
+  # Backend instance B: second model
+  backend-b:
+    build: .
+    container_name: recommender-backend-b
+    environment:
+      - PORT=5000
+      - BACKEND_NAME=backend-B
+    expose:
+      - "5000"
+
+  # Router / load balancer
+  router:
+    build: .
+    container_name: recommender-router
+    command: ["python", "router.py"]
+    environment:
+      # Router sees both backends by their service names + ports
+      - BACKENDS=http://backend-a:5000,http://backend-b:5000
+    depends_on:
+      - backend-a
+      - backend-b
+    ports:
+      - "8082:8082"
