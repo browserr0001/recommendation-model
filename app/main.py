@@ -13,6 +13,9 @@ app = Flask(__name__)
 MODEL_TAG = os.getenv('MODEL_TAG', None)
 model = get_model(tag=MODEL_TAG)
 
+# Get backend container name for logging
+BACKEND_NAME = os.environ.get("BACKEND_NAME", "unknown-backend")
+
 # For logging
 total_requests = 0
 inference_time = 0
@@ -44,7 +47,7 @@ def log_prediction(user_id, recommendations, prediction_metadata, inference_time
 
 @app.route('/api', methods=['GET'])
 def test():
-    return Response("Movie Recommendation API is running.", mimetype='text/plain')
+    return Response(f"Movie Recommendation API is running on {BACKEND_NAME}.", mimetype='text/plain')
 
 
 @app.route('/recommend/<userid>', methods=['GET'])
@@ -78,4 +81,5 @@ def model_info():
     return jsonify(metadata)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8082, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
