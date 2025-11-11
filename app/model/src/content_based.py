@@ -70,11 +70,10 @@ class ContentBasedRecommender:
         
         # Metadata for provenance tracking
         self.metadata = {
-            'model_version': None,
-            'mlflow_run_id': None,
-            'registered_model_name': None,
-            'registered_model_version': None,
+            'model_name': None,
+            'model_tag': None,
             'git_commit_hash': None,
+            'git_branch': None,
             'pipeline_version': None,
             'data_version': None,
             'training_params': {},
@@ -364,12 +363,14 @@ class ContentBasedRecommender:
         
         # Return prediction metadata for logging
         prediction_metadata = {
-            'model_version': self.metadata.get('model_version'),
-            'mlflow_run_id': self.metadata.get('mlflow_run_id'),
-            'registered_model_version': self.metadata.get('registered_model_version'),
+            'model_name': self.metadata.get('model_name'),
+            'model_tag': self.metadata.get('model_tag'),
             'git_commit_hash': self.metadata.get('git_commit_hash'),
             'pipeline_version': self.metadata.get('pipeline_version'),
             'data_version': self.metadata.get('data_version'),
+            'training_params': self.metadata.get('training_params'),
+            'trained_at': self.metadata.get('trained_at'),
+            'inference_time': inference_time
         }
         
         return movie_ids[:top_n].tolist(), inference_time, prediction_metadata

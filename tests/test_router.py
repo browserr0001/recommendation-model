@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 # Set BACKENDS before importing router so it picks these up
-os.environ["BACKENDS"] = "http://backend-a:5000,http://backend-b:5000"
+os.environ["BACKENDS"] = "http://backend-a:5001,http://backend-b:5001"
 
 import router
 
@@ -34,8 +34,8 @@ def test_health_endpoint_reports_backends(router_client):
     # Should match what router.BACKENDS was initialized with
     assert data["backends"] == router.BACKENDS
     assert data["backends"] == [
-        "http://backend-a:5000",
-        "http://backend-b:5000",
+        "http://backend-a:5001",
+        "http://backend-b:5001",
     ]
 
 
@@ -61,15 +61,15 @@ def test_recommend_round_robin(mock_get, router_client):
 
     # With two backends and round robin, we expect A, B, A
     assert called_urls == [
-        "http://backend-a:5000/recommend/1",
-        "http://backend-b:5000/recommend/2",
-        "http://backend-a:5000/recommend/3",
+        "http://backend-a:5001/recommend/1",
+        "http://backend-b:5001/recommend/2",
+        "http://backend-a:5001/recommend/3",
     ]
 
     # And the router should return the backend responses
-    assert "response from http://backend-a:5000/recommend/1" in res1.data.decode()
-    assert "response from http://backend-b:5000/recommend/2" in res2.data.decode()
-    assert "response from http://backend-a:5000/recommend/3" in res3.data.decode()
+    assert "response from http://backend-a:5001/recommend/1" in res1.data.decode()
+    assert "response from http://backend-b:5001/recommend/2" in res2.data.decode()
+    assert "response from http://backend-a:5001/recommend/3" in res3.data.decode()
 
 
 @patch("router.requests.get")

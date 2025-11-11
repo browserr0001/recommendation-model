@@ -14,7 +14,7 @@ COPY app ./app
 COPY router.py ./router.py
 
 # Expose backend port
-EXPOSE 5000
+EXPOSE 5001
 
 # Run the app as a module (so "app.main" is importable)
 CMD ["python", "-m", "app.main"]

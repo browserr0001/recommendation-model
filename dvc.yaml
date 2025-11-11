@@ -9,8 +9,8 @@ stages:
   #   outs:
   #   - data-pull/
 
-  train:
-    cmd: python app/model/src/train.py app/pkl_models/content_based_model_full.pkl
+  train_initial_model:
+    cmd: python app/model/src/train.py app/pkl_models
     deps:
     - app/model/src/train.py
     - data-pull/data/
@@ -18,8 +18,22 @@ stages:
     - train.age_bucket
     - train.mid_rating_watch_over
     - train.data_path
+    - train.tag
     outs:
-    - app/pkl_models/content_based_model_full.pkl
+    - app/pkl_models/content_based_model_Initial_Model.pkl
+
+  train_updated_model:
+    cmd: python app/model/src/train.py app/pkl_models
+    deps:
+    - app/model/src/train.py
+    - data-pull/data/
+    params:
+    - train.age_bucket
+    - train.mid_rating_watch_over
+    - train.data_path
+    - train.tag
+    outs:
+    - app/pkl_models/content_based_model_Updated_Model.pkl
 
   # TODO: Add evaluation stage
   # eval: 

@@ -8,6 +8,18 @@ from content_based import ContentBasedRecommender
 import pyarrow.parquet as pq
 import pandas as pd
 
+import mlflow
+from mlflow.tracking import MlflowClient
+
+import json
+
+import mlflow.pyfunc
+
+
+# Set up MLflow experiment
+experiment_name = "content_based_recommender"
+mlflow.set_experiment(experiment_name)
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "/mlruns"))
 
 def get_git_commit_hash():
     """Get current git commit hash for code versioning"""
@@ -49,6 +61,34 @@ def get_dvc_hash(path):
     movies_hash = movies_yaml['outs'][0]['hash']
 
     return movies_hash, users_hash, ratings_hash, watches_hash
+
+class RecommenderWrapper(mlflow.pyfunc.PythonModel):
+    def __init__(self):
+        self.recommender: ContentBasedRecommender = None
+        self.metadata = {}
+
+    def load_context(self, context):
+        from joblib import load
+        self.recommender = load(context.artifacts["model_pkl"])
+        self.metadata = self.recommender.get_metadata()
+
+    def predict(self, context, model_input, params=None):
+        if isinstance(model_input, int):
+            return self.recommender.get_recommendations(user_id=model_input)
+        elif isinstance(model_input, list):
+            return [self.recommender.get_recommendations(uid) for uid in model_input]
+        elif isinstance(model_input, pd.DataFrame):
+            results = []
+            for _, row in model_input.iterrows():
+                uid = int(row["user_id"])
+                n = int(row.get("top_n", 20))
+                recs = self.recommender.get_recommendations(user_id=uid, top_n=n)
+                results.append(recs)
+            return results
+        return self.recommender.get_recommendations(user_id=model_input)
+
+    def get_metadata(self):
+        return self.metadata
 
 def train(movies, users, ratings, watches, mid_rating_watch_over: float, age_bucket: int, metadata: dict = None):
     """
@@ -133,23 +173,100 @@ def main():
     data_hash = f"movies:{movies_hash},users:{users_hash},ratings:{ratings_hash},watches:{watches_hash}"
     
     print(f"Training with data version: {data_hash}")
-    metadata = {
-            'model_name': "ContentBasedRecommender",
-            'model_tag': params.get("model_tag", "Updated_Model"),
+
+   
+
+    # Log the model with MLflow
+    with mlflow.start_run() as run:
+        # Prepare metadata for the model
+        metadata = {
+            'mlflow_run_id': run.info.run_id,
             'git_commit_hash': git_commit_hash,
             'git_branch': git_branch,
             'pipeline_version': params.get("pipeline_version", "Unknown"),
             'data_version': data_hash,
         }
-    model = train(movies, users, ratings, watches, mid_rating_watch_over=mid_rating_watch_over, age_bucket=age_bucket, metadata=metadata)
+        
+        # Log parameters first
+        mlflow.log_param("mid_rating_watch_over", mid_rating_watch_over)
+        mlflow.log_param("age_bucket", age_bucket)
+        mlflow.log_param("model_type", "content_based")
+        mlflow.log_param("pipeline_version", params.get("pipeline_version", "Unknown"))
+        mlflow.log_param("data_version", data_hash)
+        mlflow.log_param("git_commit_hash", git_commit_hash)
+        mlflow.log_param("git_branch", git_branch)
+        
+        # Train model with metadata
+        model = train(movies, users, ratings, watches, mid_rating_watch_over=mid_rating_watch_over, age_bucket=age_bucket, metadata=metadata)
+        
+        # Save the model locally
+        with open(output, "wb") as fd:
+            pickle.dump(model, fd)
 
-    # Save with a versioned filename
-    version_tag = params.get("tag", "Updated_Model")
-    save_path = f"{output}/content_based_model_{version_tag}.pkl"
-    print(f"Saving model to {save_path}...")
-    with open(save_path, "wb") as f:
-        pickle.dump(model, f)
+        # Save metadata to JSON file in the location in the same folder with the model
+        metadata_path = output.replace('.pkl', '_metadata.json')
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f)
 
+        mlflow.log_artifact(output)
+        mlflow.log_artifact(metadata_path)
+        
+        # MLflow will resolve these relative to the run's artifact location
+        artifacts = {
+            "model_pkl": output, 
+            "model_metadata": metadata_path
+        }
+        # Log the pickle file as an artifact
+        model_name = "content_based_model_full"
+
+        mlflow.pyfunc.log_model(
+            name="recommender_model",
+            python_model=RecommenderWrapper(),
+            artifacts=artifacts,
+            registered_model_name=model_name, 
+            input_example=pd.DataFrame({"user_id": [int(users['user_id'].iloc[0])]})
+        )
+
+        if params.get("train_for_prod", False):
+            client = MlflowClient()
+            latest_versions = client.get_latest_versions(model_name, stages=["None", "Staging"])
+            latest_version_number = latest_versions[0].version
+
+            # Promote to Production and archive any existing production versions
+            client.transition_model_version_stage(
+                name=model_name,
+                version=latest_version_number,
+                stage="Production",
+                archive_existing_versions=True 
+            )
+
+            # Set tags on the model version
+            model_tag = params.get("tag", "default")
+            client.set_model_version_tag(
+                name=model_name,
+                version=latest_version_number,
+                key="model_tag",
+                value=model_tag
+            )
+
+            # Update model metadata with registry information
+            model.metadata['registered_model_name'] = model_name
+            model.metadata['model_tag'] = model_tag
+
+            # Re-save the model with updated metadata
+            with open(output, "wb") as fd:
+                pickle.dump(model, fd)
+            
+            # Log the model version info as parameters
+            mlflow.log_param("registered_model_name", model_name)
+            mlflow.log_param("model_tag", model_tag)
+        
+        print(f"Model training complete. Run ID: {run.info.run_id}")
+        print(f"Model saved to: {output}")
+        print(f"Data version: {data_hash}")
+        print(f"Code version: {git_commit_hash}")
+    
     return model
+
 if __name__ == "__main__":
     main()

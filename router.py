@@ -5,8 +5,8 @@ import requests
 
 app = Flask(__name__)
 
-# Comma-separated backend URLs such as "http://backend-a:5000,http://backend-b:5000"
-BACKENDS = [b for b in os.environ.get("BACKENDS", "http://backend-a:5000").split(",") if b]
+# Comma-separated backend URLs such as "http://backend-a:5001,http://backend-b:5001"
+BACKENDS = [b for b in os.environ.get("BACKENDS", "http://backend-a:5001").split(",") if b]
 
 # Round-robin iterator over the backend list
 server_pool = itertools.cycle(BACKENDS)
@@ -38,6 +38,20 @@ def recommend(userid):
         mimetype=resp.headers.get("Content-Type", "text/plain") or "text/plain",
     )
 
+
+@app.get("/model-info")
+def model_info():
+    backend = choose_backend()
+    try:
+        resp = requests.get(f"{backend}/model-info", timeout=0.55)
+    except requests.RequestException as e:
+        return Response(f"Backend error: {e}", status=502, mimetype="text/plain")
+
+    return Response(
+        resp.content,
+        status=resp.status_code,
+        mimetype=resp.headers.get("Content-Type", "text/plain") or "text/plain",
+    )
 
 @app.get("/api")
 def api_proxy():

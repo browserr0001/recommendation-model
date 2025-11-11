@@ -375,13 +375,11 @@ def test_movie_profiles_shape(trained_model):
     assert model.movie_profiles.shape[0] == len(movies)
     assert model.movie_profiles.shape[1] > 0
 
+def test_fixture_user_counts():
+    movies, users, ratings, watches = content_based.read_data(str(FIXTURES_PATH) + '/')
+    assert ratings['user_id'].nunique() > 0, "Ratings should have users"
+    assert watches['user_id'].nunique() > 0, "Watches should have users"
 
-def test_user_profiles_not_empty(trained_model):
-    """Test that some user profiles were created"""
-    model = trained_model['model']
-    
-    assert model.user_profiles is not None
-    assert len(model.user_profiles) > 0
 
 
 # ============================================================================

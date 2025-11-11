@@ -10,7 +10,7 @@ from datetime import datetime
 
 
 app = Flask(__name__)
-MODEL_TAG = os.getenv('MODEL_TAG', None)
+MODEL_TAG = os.getenv('MODEL_TAG', "Updated_Model") 
 model = get_model(tag=MODEL_TAG)
 
 # Get backend container name for logging
@@ -62,7 +62,7 @@ def recommend(userid):
     user_id_log = user_id
 
     # Get recommendations with metadata
-    recs, inf_time, prediction_metadata = model.predict(user_id, top_n=20)
+    recs, inf_time, prediction_metadata = model.get_recommendations(user_id, top_n=20)
     result = ','.join(str(i) for i in recs)
 
     # Store inference time
@@ -81,5 +81,5 @@ def model_info():
     return jsonify(metadata)
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5001))
     app.run(host='0.0.0.0', port=port, debug=False)
