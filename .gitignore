@@ -1,8 +1,11 @@
 .vscode
 .venv
-*__pycache__/
-data/
-app/model/results/
+__pycache__/
+/data/
+/app/model/results/
 *.pkl
-data-pull/test_data/*/*.parquet
+/data-pull/test_data/*/*.parquet
 *.DS_Store
+/app/logs/*.jsonl
+/mlruns/
+/logs/

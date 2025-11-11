@@ -66,6 +66,20 @@ class ContentBasedRecommender:
         self.movies_df:pd.DataFrame = None
         self.all_users:pd.DataFrame = None
         self.ratings_combined:pd.DataFrame = None
+        self.age_bucket:int = None
+        
+        # Metadata for provenance tracking
+        self.metadata = {
+            'model_version': None,
+            'mlflow_run_id': None,
+            'registered_model_name': None,
+            'registered_model_version': None,
+            'git_commit_hash': None,
+            'pipeline_version': None,
+            'data_version': None,
+            'training_params': {},
+            'trained_at': None
+        }
 
     def create_movie_profiles(self, movies: pd.DataFrame) -> np.ndarray:
         # Build movie profiles
@@ -180,7 +194,9 @@ class ContentBasedRecommender:
         
         groups = self.ratings_combined.groupby('user_id')
         user_prefs_map = {}
-        for user_id in tqdm.tqdm(rating_users):
+        # Test: process only 2 users from rating_users
+        for user_id in tqdm.tqdm(list(rating_users)[:2]):
+        # for user_id in tqdm.tqdm(rating_users):
             group = groups.get_group(user_id)
             # Get the movies this user has rated
             rated_movie_indices = []
@@ -220,7 +236,7 @@ class ContentBasedRecommender:
         # This will help in cold start for users not in the preprocessed set
         group_profiles = {}
         # Get the age_group in user_prefs_map_df
-        user_prefs_map_df['age_group'] = (user_prefs_map_df['age'] // 10) * 10
+        user_prefs_map_df['age_group'] = (user_prefs_map_df['age'] // self.age_bucket) * self.age_bucket
         user_prefs_map_df['age_group'] = user_prefs_map_df['age_group'].fillna(-1).astype(int)
         user_prefs_map_df['gender'] = user_prefs_map_df['gender'].fillna('Unknown')
         # group user_prefs_map_df by gender and age_group and get the mean of user_prefs columns
@@ -252,7 +268,7 @@ class ContentBasedRecommender:
         # print(f"Created profiles for {len(user_profiles)} users total")
         return 
 
-    def fit(self, movies_df: pd.DataFrame, users_df: pd.DataFrame, ratings_df: pd.DataFrame, watches_df: pd.DataFrame, mid_rating_watch_over: float = 0.5):
+    def fit(self, movies_df: pd.DataFrame, users_df: pd.DataFrame, ratings_df: pd.DataFrame, watches_df: pd.DataFrame, mid_rating_watch_over: float = 0.5, age_bucket: int = 10, metadata: dict = None):
         """
         Train the content-based recommender
         
@@ -261,6 +277,7 @@ class ContentBasedRecommender:
         users_df: DataFrame with user metadata
         ratings_df: DataFrame with user ratings
         watches_df: Optional DataFrame with watch data
+        metadata: Dictionary containing provenance information (git hash, data version, etc.)
         """
         # Validate input dataframes
         if movies_df.empty:
@@ -275,6 +292,16 @@ class ContentBasedRecommender:
         t_start = time.time()
         self.movies_df = movies_df.copy()
         self.all_users = users_df.copy()
+        self.age_bucket = age_bucket
+
+        # Store training parameters and metadata for provenance
+        if metadata:
+            self.metadata.update(metadata)
+        self.metadata['training_params'] = {
+            'mid_rating_watch_over': mid_rating_watch_over,
+            'age_bucket': age_bucket
+        }
+        self.metadata['trained_at'] = pd.Timestamp.now().isoformat()
 
         # merge watches_df with movies_df and calculate the percent watched 
         # If the user watched over half of the movie, it is automatically counted as a mid rating
@@ -303,17 +330,18 @@ class ContentBasedRecommender:
         
         return self
     
-    def get_recommendations(self, user_id, top_n=10, exclude_seen=True):
+    def get_recommendations(self, user_id:int, top_n=10):
         """
         Get movie recommendations for a user
         
         Parameters:
         user_id: User ID to get recommendations for
         top_n: Number of recommendations to return
-        exclude_seen: Whether to exclude movies the user has already rated
         
         Returns:
-        recommendations: DataFrame with movie recommendations
+        recommendations: list of movie IDs
+        inference_time: time taken for inference
+        prediction_metadata: dictionary with model version and provenance info
         """
         t_start = time.time()
         if user_id in self.user_profiles.keys():
@@ -324,15 +352,31 @@ class ContentBasedRecommender:
             try: 
                 user_age = self.all_users[self.all_users['user_id'] == user_id]['age'][0]
                 user_gender = self.all_users[self.all_users['user_id'] == user_id]['gender'][0]
-                if user_age//10*10 in self.all_age_groups and user_gender in self.all_genders:
-                    ranked_movie_indices = self.group_profiles[user_gender][user_age//10*10]
+                if user_age//self.age_bucket*self.age_bucket in self.all_age_groups and user_gender in self.all_genders:
+                    ranked_movie_indices = self.group_profiles[user_gender][user_age//self.age_bucket*self.age_bucket]
                 else:
                     ranked_movie_indices = self.group_profiles['Unknown'][-1]
             except:
                 ranked_movie_indices = self.group_profiles['Unknown'][-1]
         
         movie_ids = self.movies_df.iloc[ranked_movie_indices]['movie_id'].values
-        return movie_ids[:top_n].tolist(), time.time() - t_start
+        inference_time = time.time() - t_start
+        
+        # Return prediction metadata for logging
+        prediction_metadata = {
+            'model_version': self.metadata.get('model_version'),
+            'mlflow_run_id': self.metadata.get('mlflow_run_id'),
+            'registered_model_version': self.metadata.get('registered_model_version'),
+            'git_commit_hash': self.metadata.get('git_commit_hash'),
+            'pipeline_version': self.metadata.get('pipeline_version'),
+            'data_version': self.metadata.get('data_version'),
+        }
+        
+        return movie_ids[:top_n].tolist(), inference_time, prediction_metadata
+    
+    def get_metadata(self):
+        """Return model metadata for provenance tracking"""
+        return self.metadata.copy()
 
     def get_model_size(self):
         """

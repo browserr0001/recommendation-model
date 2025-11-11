@@ -1,0 +1,208 @@
+# Provenance Tracking Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          TRAINING PHASE (dvc repro)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐
+    │   Git Repo   │ ──────► git rev-parse HEAD ──────► Git Commit Hash
+    └──────────────┘                                     (def456...)
+
+    ┌──────────────┐
+    │  DVC Files   │ ──────► Parse .dvc YAML ──────────► Data Version Hashes
+    │  .parquet.dvc│                                     (movies:abc123,...)
+    └──────────────┘
+
+    ┌──────────────┐
+    │ params.yaml  │ ──────► Load parameters ──────────► Pipeline Version
+    └──────────────┘                                     (v1.0)
+
+                                    │
+                                    ▼
+                        ┌───────────────────────┐
+                        │  Create Metadata Dict │
+                        │  ┌─────────────────┐  │
+                        │  │ git_commit_hash │  │
+                        │  │ pipeline_version│  │
+                        │  │ data_version    │  │
+                        │  │ mlflow_run_id   │  │
+                        │  └─────────────────┘  │
+                        └───────────────────────┘
+                                    │
+                                    ▼
+                        ┌───────────────────────┐
+                        │   Train Model with    │
+                        │   Metadata Embedded   │
+                        │                       │
+                        │  model.metadata = {   │
+                        │    ...all info...     │
+                        │  }                    │
+                        └───────────────────────┘
+                                    │
+                        ┌───────────┴───────────┐
+                        │                       │
+                        ▼                       ▼
+            ┌─────────────────────┐   ┌──────────────────┐
+            │   Save as Pickle    │   │  MLflow Registry │
+            │   (with metadata)   │   │  - Run tracking  │
+            │                     │   │  - Model version │
+            │   .pkl ──► .pkl.dvc │   │  - Parameters    │
+            └─────────────────────┘   └──────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        INFERENCE PHASE (API Request)                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    HTTP GET /recommend/123
+            │
+            ▼
+    ┌───────────────────┐
+    │  Load Model from  │
+    │    Pickle File    │
+    │                   │
+    │  model.metadata   │ ◄─── Metadata stored in model object
+    │  = {...}          │
+    └───────────────────┘
+            │
+            ▼
+    ┌───────────────────────────────────────┐
+    │  model.get_recommendations(user_id)   │
+    │                                       │
+    │  Returns:                             │
+    │  - recommendations: [1, 2, 3, ...]    │
+    │  - inference_time: 0.002              │
+    │  - prediction_metadata: {             │
+    │      model_version: "...",            │
+    │      git_commit_hash: "...",          │
+    │      data_version: "..."              │
+    │    }                                  │
+    └───────────────────────────────────────┘
+            │
+            ▼
+    ┌───────────────────────────────────────┐
+    │      log_prediction() Function        │
+    │                                       │
+    │  Creates log entry with:              │
+    │  - timestamp                          │
+    │  - user_id                            │
+    │  - recommendations                    │
+    │  - inference_time                     │
+    │  - model_metadata (full provenance)   │
+    └───────────────────────────────────────┘
+            │
+            ▼
+    ┌───────────────────────────────────────┐
+    │   Append to Daily Log File            │
+    │   app/logs/predictions_20251109.jsonl │
+    │                                       │
+    │   Each line = One prediction          │
+    └───────────────────────────────────────┘
+            │
+            ▼
+    Return recommendations to client
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     PROVENANCE QUERY (Answering Questions)                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Q1: Which model version made prediction?
+    │
+    ├─► From Log: log['model_metadata']['model_version']
+    ├─► From API: GET /model-info
+    └─► From MLflow: client.get_run(run_id)
+
+Q2: Which code version trained the model?
+    │
+    ├─► From Log: log['model_metadata']['git_commit_hash']
+    ├─► Reconstruct: git checkout <commit_hash>
+    └─► View code: cat app/model/src/train.py
+
+Q3: What data was used for training?
+    │
+    ├─► From Log: log['model_metadata']['data_version']
+    ├─► Verify: cat data-pull/data/meta/movies.parquet.dvc
+    └─► Pull data: dvc pull (at that git commit)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         DATA FLOW SUMMARY                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                    TRAINING                INFERENCE
+                        │                       │
+                        ▼                       ▼
+    ┌──────────────────────────────────────────────────────┐
+    │                   Model Object                       │
+    │  ┌────────────────────────────────────────────┐     │
+    │  │           model.metadata = {               │     │
+    │  │             model_version: "v3"            │     │
+    │  │             mlflow_run_id: "abc123"        │     │
+    │  │             git_commit_hash: "def456"      │◄────┼──── Embedded
+    │  │             pipeline_version: "v1.0"       │     │     during
+    │  │             data_version: "movies:..."     │     │     training
+    │  │             training_params: {...}         │     │
+    │  │             trained_at: "2025-11-09..."    │     │
+    │  │           }                                │     │
+    │  └────────────────────────────────────────────┘     │
+    │                                                      │
+    │  ┌────────────────────────────────────────────┐     │
+    │  │        get_recommendations(user_id)        │     │
+    │  │                  │                         │     │
+    │  │                  ▼                         │     │
+    │  │     Returns (recs, time, metadata)        │◄────┼──── Used for
+    │  │            │                               │     │     every
+    │  │            └─► metadata = self.metadata    │     │     prediction
+    │  └────────────────────────────────────────────┘     │
+    └──────────────────────────────────────────────────────┘
+                        │
+                        ▼
+            ┌─────────────────────┐
+            │  Prediction Logs    │
+            │  (JSONL files)      │
+            │                     │
+            │  One entry per      │
+            │  prediction with    │
+            │  full metadata      │
+            └─────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       VERSIONING LAYERS                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    Layer 1: MODEL VERSIONING
+    ┌────────────────────────────────────────┐
+    │ MLflow Model Registry                  │
+    │ - Model name: content_based_model_full │
+    │ - Version number: 1, 2, 3, ...         │
+    │ - Stage: Production/Staging/Archived   │
+    └────────────────────────────────────────┘
+    ┌────────────────────────────────────────┐
+    │ DVC (Data Version Control)             │
+    │ - Content-based hash (MD5)             │
+    │ - Stored in .pkl.dvc file              │
+    └────────────────────────────────────────┘
+
+    Layer 2: CODE VERSIONING
+    ┌────────────────────────────────────────┐
+    │ Git Commit Hash                        │
+    │ - Exact snapshot of code               │
+    │ - Captured: git rev-parse HEAD         │
+    └────────────────────────────────────────┘
+    ┌────────────────────────────────────────┐
+    │ Pipeline Version (params.yaml)         │
+    │ - Semantic version (v1.0, v2.0, ...)   │
+    │ - For major pipeline changes           │
+    └────────────────────────────────────────┘
+
+    Layer 3: DATA VERSIONING
+    ┌────────────────────────────────────────┐
+    │ DVC Hashes (per file)                  │
+    │ - movies.parquet: abc123...            │
+    │ - users.parquet: def456...             │
+    │ - ratings.parquet: ghi789...           │
+    │ - watches.parquet: jkl012...           │
+    └────────────────────────────────────────┘
