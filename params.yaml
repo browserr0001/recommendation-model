@@ -8,5 +8,5 @@ train:
   data_path: data-pull/data/
   mid_rating_watch_over: 0.5
   pipeline_version: v1.0
-  tag: Updated Model
+  tag: Updated_Model
   train_for_prod: true

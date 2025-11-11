@@ -10,9 +10,9 @@ stages:
       size: 10555
     - path: data-pull/data/
       hash: md5
-      md5: 3b3ec296e936b7694d989511c7893933.dir
-      size: 21619325
-      nfiles: 14
+      md5: 2c6940d35b40d93a325ea450227ed279.dir
+      size: 21613177
+      nfiles: 13
     params:
       params.yaml:
         train.age_bucket: 10
@@ -21,5 +21,28 @@ stages:
     outs:
     - path: app/pkl_models/content_based_model_full.pkl
       hash: md5
-      md5: 4516d35e83224b7e7b11520570b7d5a1
+      md5: d7c1f76a504479d20dcbf8c10b5731fb
       size: 59507307
+  train_updated_model:
+    cmd: python app/model/src/train.py app/pkl_models
+    deps:
+    - path: app/model/src/train.py
+      hash: md5
+      md5: 4a5fc658640d80d0ce12450c83c95e7d
+      size: 6477
+    - path: data-pull/data/
+      hash: md5
+      md5: 2c6940d35b40d93a325ea450227ed279.dir
+      size: 21613177
+      nfiles: 13
+    params:
+      params.yaml:
+        train.age_bucket: 10
+        train.data_path: data-pull/data/
+        train.mid_rating_watch_over: 0.5
+        train.tag: Updated_Model
+    outs:
+    - path: app/pkl_models/content_based_model_Updated_Model.pkl
+      hash: md5
+      md5: 2e3dce7b7dc27b19838bb0cbab90dcc5
+      size: 59507175
