@@ -1,5 +1,0 @@
-outs:
-- md5: 801e9e78cef03093ba00210a50bcdad6
-  size: 73207840
-  hash: md5
-  path: content_based_model_full.pkl

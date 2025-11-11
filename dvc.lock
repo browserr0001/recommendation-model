@@ -1,0 +1,25 @@
+schema: '2.0'
+stages:
+  train:
+    cmd: python app/model/src/train.py 
+      app/pkl_models/content_based_model_full.pkl
+    deps:
+    - path: app/model/src/train.py
+      hash: md5
+      md5: 119d00f74162a37e605e00a54380acb5
+      size: 10555
+    - path: data-pull/data/
+      hash: md5
+      md5: 3b3ec296e936b7694d989511c7893933.dir
+      size: 21619325
+      nfiles: 14
+    params:
+      params.yaml:
+        train.age_bucket: 10
+        train.data_path: data-pull/data/
+        train.mid_rating_watch_over: 0.5
+    outs:
+    - path: app/pkl_models/content_based_model_full.pkl
+      hash: md5
+      md5: 4516d35e83224b7e7b11520570b7d5a1
+      size: 59507307
