@@ -195,8 +195,8 @@ class ContentBasedRecommender:
         groups = self.ratings_combined.groupby('user_id')
         user_prefs_map = {}
         # Test: process only 2 users from rating_users
-        for user_id in tqdm.tqdm(list(rating_users)[:2]):
-        # for user_id in tqdm.tqdm(rating_users):
+        # for user_id in tqdm.tqdm(list(rating_users)[:2]):
+        for user_id in tqdm.tqdm(rating_users):
             group = groups.get_group(user_id)
             # Get the movies this user has rated
             rated_movie_indices = []
