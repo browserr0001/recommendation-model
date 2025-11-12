@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Set
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Set
 
 import json
 
@@ -243,11 +243,17 @@ class HourlyIngestor:
         dest_file: Path,
         chunk: pd.DataFrame,
         subset: List[str],
+        prepare_fn: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
     ) -> Optional[pd.DataFrame]:
         """Append chunk to destination, dropping duplicates."""
+        if prepare_fn is not None:
+            chunk = prepare_fn(chunk)
         frames = [chunk]
         if dest_file.exists():
-            frames.insert(0, pd.read_parquet(dest_file))
+            existing = pd.read_parquet(dest_file)
+            if prepare_fn is not None:
+                existing = prepare_fn(existing)
+            frames.insert(0, existing)
         combined = pd.concat(frames, ignore_index=True)
         combined = combined.drop_duplicates(subset=subset, keep="last")
         if combined.empty:
@@ -285,7 +291,12 @@ class HourlyIngestor:
 
         df = self._prepare_metadata(kind, df)
         df["fetched_at"] = datetime.utcnow().replace(tzinfo=timezone.utc)
-        combined = self._merge_with_existing(dest_file, df, subset_map[kind])
+        combined = self._merge_with_existing(
+            dest_file,
+            df,
+            subset_map[kind],
+            prepare_fn=lambda frame: self._prepare_metadata(kind, frame),
+        )
         if combined is None:
             return
         combined.to_parquet(dest_file, index=False)
