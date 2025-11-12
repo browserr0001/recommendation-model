@@ -283,7 +283,7 @@ class HourlyIngestor:
         if df.empty:
             return
 
-        df = self._sanitize_metadata(df)
+        df = self._prepare_metadata(kind, df)
         df["fetched_at"] = datetime.utcnow().replace(tzinfo=timezone.utc)
         combined = self._merge_with_existing(dest_file, df, subset_map[kind])
         if combined is None:
@@ -363,17 +363,12 @@ class HourlyIngestor:
         tmp_path = path.with_suffix(".tmp")
         tmp_path.write_text(json.dumps(sorted(values)), encoding="utf-8")
         tmp_path.replace(path)
-
-    def _sanitize_metadata(self, df: pd.DataFrame) -> pd.DataFrame:
-        def normalize(value):
-            if isinstance(value, (dict, list)):
-                try:
-                    return json.dumps(value)
-                except Exception:
-                    return str(value)
-            return value
-
-        return df.applymap(normalize)
+    def _prepare_metadata(self, kind: str, df: pd.DataFrame) -> pd.DataFrame:
+        if kind == "movies":
+            drop_cols = [col for col in ["belongs_to_collection"] if col in df.columns]
+            if drop_cols:
+                df = df.drop(columns=drop_cols)
+        return df
 
 
 # --------------------------------------------------------------------------- #
