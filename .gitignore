@@ -4,5 +4,7 @@
 data/
 app/model/results/
 *.pkl
+archive/data_store/
+archive/model_store/
 data-pull/test_data/*/*.parquet
 *.DS_Store
