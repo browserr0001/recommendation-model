@@ -13,7 +13,6 @@ Run it indefinitely on the VM (tmux/systemd) as long as the Kafka tunnel is up.
 
 from __future__ import annotations
 
-import json
 import logging
 import signal
 import sys
@@ -23,6 +22,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Set
+
+import json
 
 import pandas as pd
 from confluent_kafka import Consumer, KafkaError, KafkaException, TopicPartition
@@ -282,6 +283,7 @@ class HourlyIngestor:
         if df.empty:
             return
 
+        df = self._sanitize_metadata(df)
         df["fetched_at"] = datetime.utcnow().replace(tzinfo=timezone.utc)
         combined = self._merge_with_existing(dest_file, df, subset_map[kind])
         if combined is None:
@@ -361,6 +363,17 @@ class HourlyIngestor:
         tmp_path = path.with_suffix(".tmp")
         tmp_path.write_text(json.dumps(sorted(values)), encoding="utf-8")
         tmp_path.replace(path)
+
+    def _sanitize_metadata(self, df: pd.DataFrame) -> pd.DataFrame:
+        def normalize(value):
+            if isinstance(value, (dict, list)):
+                try:
+                    return json.dumps(value)
+                except Exception:
+                    return str(value)
+            return value
+
+        return df.applymap(normalize)
 
 
 # --------------------------------------------------------------------------- #
