@@ -364,10 +364,22 @@ class HourlyIngestor:
         tmp_path.write_text(json.dumps(sorted(values)), encoding="utf-8")
         tmp_path.replace(path)
     def _prepare_metadata(self, kind: str, df: pd.DataFrame) -> pd.DataFrame:
-        if kind == "movies":
-            drop_cols = [col for col in ["belongs_to_collection"] if col in df.columns]
-            if drop_cols:
-                df = df.drop(columns=drop_cols)
+        df = df.copy()
+        if kind == "movies" and "belongs_to_collection" in df.columns:
+            df = df.drop(columns=["belongs_to_collection"])
+
+        def _serialize(value):
+            if isinstance(value, (dict, list)):
+                try:
+                    return json.dumps(value)
+                except Exception:
+                    return str(value)
+            return value
+
+        for column in df.columns:
+            if df[column].dtype == object:
+                df[column] = df[column].map(_serialize)
+
         return df
 
 
