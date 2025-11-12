@@ -1,13 +1,12 @@
 schema: '2.0'
 stages:
-  train:
-    cmd: python app/model/src/train.py 
-      app/pkl_models/content_based_model_full.pkl
+  train_initial_model:
+    cmd: python app/model/src/train.py app/pkl_models
     deps:
     - path: app/model/src/train.py
       hash: md5
-      md5: 119d00f74162a37e605e00a54380acb5
-      size: 10555
+      md5: b46adc0aac17a82c740eb49e6535ff2f
+      size: 6473
     - path: data-pull/data/
       hash: md5
       md5: 2c6940d35b40d93a325ea450227ed279.dir
@@ -18,18 +17,19 @@ stages:
         train.age_bucket: 10
         train.data_path: data-pull/data/
         train.mid_rating_watch_over: 0.5
+        train.tag: Initial_Model
     outs:
-    - path: app/pkl_models/content_based_model_full.pkl
+    - path: app/pkl_models/content_based_model_Initial_Model.pkl
       hash: md5
-      md5: d7c1f76a504479d20dcbf8c10b5731fb
-      size: 59507307
+      md5: 0791bf950d1c96c1f675f42f0db78685
+      size: 72281312
   train_updated_model:
     cmd: python app/model/src/train.py app/pkl_models
     deps:
     - path: app/model/src/train.py
       hash: md5
-      md5: 4a5fc658640d80d0ce12450c83c95e7d
-      size: 6477
+      md5: b46adc0aac17a82c740eb49e6535ff2f
+      size: 6473
     - path: data-pull/data/
       hash: md5
       md5: 2c6940d35b40d93a325ea450227ed279.dir
@@ -40,9 +40,9 @@ stages:
         train.age_bucket: 10
         train.data_path: data-pull/data/
         train.mid_rating_watch_over: 0.5
-        train.tag: Updated_Model
+        train.tag: Initial_Model
     outs:
     - path: app/pkl_models/content_based_model_Updated_Model.pkl
       hash: md5
-      md5: 2e3dce7b7dc27b19838bb0cbab90dcc5
-      size: 59507175
+      md5: a6a425624a5eca26b62707b169ab88ac
+      size: 72281312

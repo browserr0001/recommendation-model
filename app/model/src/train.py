@@ -31,22 +31,22 @@ def get_dvc_hash(path):
     watches_path = os.path.join(path, 'watches/watches.parquet.dvc')
     with open(watches_path, 'r') as f:
         watches_yaml = yaml.safe_load(f)
-    watches_hash = watches_yaml['outs'][0]['hash']
+    watches_hash = watches_yaml['outs'][0]['md5']
 
     ratings_path = os.path.join(path, 'ratings/ratings.parquet.dvc')
     with open(ratings_path, 'r') as f:
         ratings_yaml = yaml.safe_load(f)
-    ratings_hash = ratings_yaml['outs'][0]['hash']
+    ratings_hash = ratings_yaml['outs'][0]['md5']
 
     users_path = os.path.join(path, 'meta/users_new.parquet.dvc')
     with open(users_path, 'r') as f:
         users_yaml = yaml.safe_load(f)
-    users_hash = users_yaml['outs'][0]['hash']
+    users_hash = users_yaml['outs'][0]['md5']
 
     movies_path = os.path.join(path, 'meta/movies.parquet.dvc')
     with open(movies_path, 'r') as f:
         movies_yaml = yaml.safe_load(f)
-    movies_hash = movies_yaml['outs'][0]['hash']
+    movies_hash = movies_yaml['outs'][0]['md5']
 
     return movies_hash, users_hash, ratings_hash, watches_hash
 

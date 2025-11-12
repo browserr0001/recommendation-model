@@ -9,3 +9,5 @@ __pycache__/
 /app/logs/*.jsonl
 /mlruns/
 /logs/
+dvc_remote_setup.md
+.dvc/config
