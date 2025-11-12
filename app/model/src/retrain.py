@@ -37,11 +37,33 @@ def read_data(path_prefix='data/'):
     movies.rename(columns={'id': 'movie_id'}, inplace=True)
     
 
-    def get_names(names):
-        return [g['name'] for g in names]
-    movies['genres'] = movies['genres'].apply(get_names)
-    movies['production_companies'] = movies['production_companies'].apply(get_names)
-    movies['production_countries'] = movies['production_countries'].apply(get_names)
+    def parse_name_field(value):
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return []
+        parsed = value
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return [value]
+        if isinstance(parsed, list):
+            names = []
+            for item in parsed:
+                if isinstance(item, dict) and "name" in item:
+                    names.append(item["name"])
+                elif isinstance(item, str):
+                    names.append(item)
+            return names
+        if isinstance(parsed, dict) and "name" in parsed:
+            return [parsed["name"]]
+        return []
+
+    movies['genres'] = movies['genres'].apply(parse_name_field)
+    movies['production_companies'] = movies['production_companies'].apply(parse_name_field)
+    movies['production_countries'] = movies['production_countries'].apply(parse_name_field)
 
     numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
                            'vote_average', 'vote_count']

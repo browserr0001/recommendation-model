@@ -112,6 +112,19 @@ def merge_files(files: List[Path], subset: Optional[List[str]]) -> Optional[pd.D
     return combined
 
 
+def merge_with_existing_snapshot(kind: str, df: pd.DataFrame) -> pd.DataFrame:
+    """Union the fresh merge with the previous snapshot to retain historical rows."""
+    target_path = DATA_TARGETS[kind]
+    if not target_path.exists():
+        return df
+    existing = pd.read_parquet(target_path)
+    combined = pd.concat([existing, df], ignore_index=True)
+    subset = KIND_SETTINGS[kind].get("subset")
+    if subset:
+        combined = combined.drop_duplicates(subset=subset, keep="last")
+    return combined
+
+
 def prepare_dataset(kind: str, df: pd.DataFrame) -> pd.DataFrame:
     if kind != "watches":
         return df
@@ -161,6 +174,8 @@ def main() -> None:
             logging.info("Skipping %s (no data).", kind)
             continue
         df = prepare_dataset(kind, df)
+        if kind in {"movies", "users"}:
+            df = merge_with_existing_snapshot(kind, df)
         logging.info("Merged %s dataset (%d rows).", kind, len(df))
         write_primary_copy(kind, df)
         write_archive_copy(kind, df, timestamp)
