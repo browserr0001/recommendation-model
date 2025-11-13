@@ -5,5 +5,3 @@ pandas==2.2.2
 requests==2.31.0
 pyarrow==21.0.0
 tqdm==4.67.1
-dvclive>=3.0
-mlflow==3.4.0

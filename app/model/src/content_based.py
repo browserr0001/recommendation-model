@@ -396,8 +396,8 @@ class ContentBasedRecommender:
             'git_commit_hash': self.metadata.get('git_commit_hash'),
             'pipeline_version': self.metadata.get('pipeline_version'),
             'data_version': self.metadata.get('data_version'),
-            'data_start_timestamp': self.metadata.get('data_start_timestamp'),
-            'data_end_timestamp': self.metadata.get('data_end_timestamp'),
+            'data_start_timestamp': str(self.metadata.get('data_start_timestamp')),
+            'data_end_timestamp': str(self.metadata.get('data_end_timestamp')),
             'training_params': self.metadata.get('training_params'),
             'trained_at': self.metadata.get('trained_at'),
             'inference_time': inference_time
