@@ -11,5 +11,5 @@
   "base_metadata_url": "http://128.2.220.241:8080",
   "metadata_workers": 8,
   "request_timeout": 10.0,
-  "merge_hours": 6
+  "merge_hours": 4
 }
