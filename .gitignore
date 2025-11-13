@@ -11,3 +11,6 @@ __pycache__/
 /logs/
 dvc_remote_setup.md
 .dvc/config
+archive/data_store/
+archive/model_store/
+hourly_data/

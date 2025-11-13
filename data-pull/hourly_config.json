@@ -1,0 +1,15 @@
+{
+  "bootstrap_servers": "localhost:9092",
+  "topic": "movielog8",
+  "group_id": "hourly-data-consumer-new",
+  "poll_timeout": 1.0,
+  "kafka_batch_size": 5000,
+  "flush_message_count": 20000,
+  "flush_interval_seconds": 30.0,
+  "auto_offset_reset": "latest",
+  "data_root": "hourly_data",
+  "base_metadata_url": "http://128.2.220.241:8080",
+  "metadata_workers": 8,
+  "request_timeout": 10.0,
+  "merge_days": 3
+}
