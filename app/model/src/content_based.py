@@ -377,8 +377,8 @@ class ContentBasedRecommender:
         else:
             # Cold start users
             try: 
-                user_age = self.all_users[self.all_users['user_id'] == user_id]['age'][0]
-                user_gender = self.all_users[self.all_users['user_id'] == user_id]['gender'][0]
+                user_age = self.all_users[self.all_users['user_id'] == user_id]['age'].values[0]
+                user_gender = self.all_users[self.all_users['user_id'] == user_id]['gender'].values[0]
                 if user_age//self.age_bucket*self.age_bucket in self.all_age_groups and user_gender in self.all_genders:
                     ranked_movie_indices = self.group_profiles[user_gender][user_age//self.age_bucket*self.age_bucket]
                 else:
