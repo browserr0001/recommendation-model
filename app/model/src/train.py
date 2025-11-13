@@ -2,9 +2,11 @@ import os
 import pickle
 import sys
 import subprocess
-
+import tempfile
+import shutil
 import yaml
 from content_based import ContentBasedRecommender
+from content_based import read_data
 import pyarrow.parquet as pq
 import pandas as pd
 
@@ -50,7 +52,7 @@ def get_dvc_hash(path):
 
     return movies_hash, users_hash, ratings_hash, watches_hash
 
-def train(movies, users, ratings, watches, mid_rating_watch_over: float, age_bucket: int, metadata: dict = None):
+def train(params, output:str):
     """
     Train a content-based recommender.
 
@@ -64,57 +66,6 @@ def train(movies, users, ratings, watches, mid_rating_watch_over: float, age_buc
     Returns:
         model (ContentBasedRecommender): Trained model.
     """
-    content_recommender = ContentBasedRecommender()
-    content_recommender.fit(movies, users, ratings, watches, mid_rating_watch_over=mid_rating_watch_over, age_bucket=age_bucket, metadata=metadata)
-    return content_recommender
-
-def read_data(path_prefix='data/'):
-    # check this folder contains necessary parquet files
-    if not (os.path.exists(f'{path_prefix}meta/movies.parquet')) or \
-            not (os.path.exists(f'{path_prefix}meta/users_new.parquet')) or \
-            not (os.path.exists(f'{path_prefix}ratings/ratings.parquet')) or \
-            not (os.path.exists(f'{path_prefix}watches/watches.parquet')):
-        raise FileNotFoundError("One or more required parquet files are missing in the specified path.")
-
-    movies = pq.read_table(f'{path_prefix}meta/movies.parquet').to_pandas()
-    users = pq.read_table(f'{path_prefix}meta/users_new.parquet').to_pandas()
-    ratings = pq.read_table(f'{path_prefix}ratings/ratings.parquet').to_pandas()
-    watches = pq.read_table(f'{path_prefix}watches/watches.parquet').to_pandas()
-
-    selected_movie_cols = ['id', 'title', 'adult', 'budget', 'genres', 'original_language', 'overview', 'popularity', 'production_companies', 'production_countries', 'release_date', 'revenue', 'runtime', 'vote_average', 'vote_count']
-    movies = movies[selected_movie_cols]
-    movies['release_date'] = pd.to_datetime(movies['release_date'], errors='coerce')
-    movies['release_year'] = movies['release_date'].dt.year
-    movies.rename(columns={'id': 'movie_id'}, inplace=True)
-    
-
-    def get_names(names):
-        return [g['name'] for g in names]
-    movies['genres'] = movies['genres'].apply(get_names)
-    movies['production_companies'] = movies['production_companies'].apply(get_names)
-    movies['production_countries'] = movies['production_countries'].apply(get_names)
-
-    numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
-                           'vote_average', 'vote_count']
-    for feature in numeric_features:
-        movies[feature] = pd.to_numeric(movies[feature], errors='coerce')
-
-    all_features = ['adult', 'budget', 'genres', 'original_language', 'overview',
-                    'popularity', 'production_companies', 'production_countries', 
-                    'release_date', 'release_year'] + numeric_features 
-    assert all(feature in movies.columns for feature in all_features)
-    # convert adult to boolean
-    movies['adult'] = movies['adult'].astype(bool)
-    return movies, users, ratings, watches
-
-def main():
-    params = yaml.safe_load(open("params.yaml"))["train"]
-    if len(sys.argv) != 2:
-        sys.stderr.write("Arguments error. Usage:\n")
-        sys.stderr.write("\tpython train.py output\n")
-        sys.exit(1)
-
-    output = sys.argv[1]
     data_path = params["data_path"]
     age_bucket = params["age_bucket"]
     mid_rating_watch_over = params["mid_rating_watch_over"]
@@ -141,15 +92,72 @@ def main():
             'pipeline_version': params.get("pipeline_version", "Unknown"),
             'data_version': data_hash,
         }
-    model = train(movies, users, ratings, watches, mid_rating_watch_over=mid_rating_watch_over, age_bucket=age_bucket, metadata=metadata)
 
+    model = ContentBasedRecommender()
+    model.fit(movies, users, ratings, watches, mid_rating_watch_over=mid_rating_watch_over, age_bucket=age_bucket, metadata=metadata, num_warm_users=params.get("num_warm_users", 10000))
+    
+    return model
+
+
+def atomic_copy_file(source_path, destination_path):
+    """
+    Atomically copies a file, ensuring both the original and the new file
+    exist and are consistent.
+
+    Args:
+        source_path (str): The path to the original file.
+        destination_path (str): The path for the new, copied file.
+    """
+    # Create a temporary file in the same directory as the destination
+    # This is crucial for os.rename/os.replace to be atomic.
+    temp_dir = os.path.dirname(destination_path)
+    with tempfile.NamedTemporaryFile(dir=temp_dir, delete=False) as temp_file:
+        temp_file_path = temp_file.name
+
+    try:
+        # Copy the content of the source file to the temporary file
+        shutil.copy2(source_path, temp_file_path)
+
+        # Atomically rename the temporary file to the destination path
+        # os.replace is preferred for Python 3.3+ as it handles overwriting
+        # and is atomic on more systems (including Windows).
+        if hasattr(os, 'replace'):
+            os.replace(temp_file_path, destination_path)
+        else:
+            os.rename(temp_file_path, destination_path)
+
+    except Exception as e:
+        # Clean up the temporary file if an error occurs
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        raise e
+
+def main():
+    params = yaml.safe_load(open("params.yaml"))["train"]
+    if len(sys.argv) != 2:
+        sys.stderr.write("Arguments error. Usage:\n")
+        sys.stderr.write("\tpython train.py output\n")
+        sys.exit(1)
+
+    output = sys.argv[1]
+
+    # Train the model 
+    model = train(params, output)
     # Save with a versioned filename
     version_tag = params.get("tag", "Updated_Model")
     save_path = f"{output}/content_based_model_{version_tag}.pkl"
+    train_time = model.get_metadata().get('trained_at', 'unknown')
+    archive_path = f"archive/model_store/content_based_model_{version_tag}_{train_time}.pkl"
     print(f"Saving model to {save_path}...")
-    with open(save_path, "wb") as f:
+    # Save the model to the archive path first
+    os.makedirs(os.path.dirname(archive_path), exist_ok=True)
+    with open(archive_path, "wb") as f:
         pickle.dump(model, f)
 
-    return model
+    # copy the model to save_path with atomic write for the docker container to consume and avoid corruption
+    atomic_copy_file(archive_path, save_path)
+    print(f"Model saved to {save_path}")
+    
+
 if __name__ == "__main__":
     main()

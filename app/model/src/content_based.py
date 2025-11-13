@@ -32,11 +32,32 @@ def read_data(path_prefix='data/'):
     movies.rename(columns={'id': 'movie_id'}, inplace=True)
     
 
-    def get_names(names):
-        return [g['name'] for g in names]
-    movies['genres'] = movies['genres'].apply(get_names)
-    movies['production_companies'] = movies['production_companies'].apply(get_names)
-    movies['production_countries'] = movies['production_countries'].apply(get_names)
+    def parse_name_field(value):
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return []
+        parsed = value
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return [value]
+        if isinstance(parsed, list):
+            names = []
+            for item in parsed:
+                if isinstance(item, dict) and "name" in item:
+                    names.append(item["name"])
+                elif isinstance(item, str):
+                    names.append(item)
+            return names
+        if isinstance(parsed, dict) and "name" in parsed:
+            return [parsed["name"]]
+        return []
+    movies['genres'] = movies['genres'].apply(parse_name_field)
+    movies['production_companies'] = movies['production_companies'].apply(parse_name_field)
+    movies['production_countries'] = movies['production_countries'].apply(parse_name_field)
 
     numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
                            'vote_average', 'vote_count']
@@ -77,7 +98,9 @@ class ContentBasedRecommender:
             'pipeline_version': None,
             'data_version': None,
             'training_params': {},
-            'trained_at': None
+            'trained_at': None, 
+            'data_start_timestamp': None,
+            'data_end_timestamp': None
         }
 
     def create_movie_profiles(self, movies: pd.DataFrame) -> np.ndarray:
@@ -180,7 +203,7 @@ class ContentBasedRecommender:
         return movie_features
 
 
-    def create_user_profiles(self, users: pd.DataFrame, movie_features: np.ndarray, top_n=20):
+    def create_user_profiles(self, users: pd.DataFrame, movie_features: np.ndarray, top_n=20, num_warm_users=10000):
         """Build user profiles with optimized cold-start handling"""
         print("Building user profiles...")
                 
@@ -189,13 +212,13 @@ class ContentBasedRecommender:
         
         # First handle users we have ratings for (fast path)
         rating_users = set(self.ratings_combined['user_id'].unique())
-        print(f"Processing {len(rating_users)} users with ratings...")
+        print(f"Processing {min(num_warm_users, len(rating_users))} users with ratings...")
         
         groups = self.ratings_combined.groupby('user_id')
         user_prefs_map = {}
-        # Test: process only 2 users from rating_users
-        # for user_id in tqdm.tqdm(list(rating_users)[:2]):
-        for user_id in tqdm.tqdm(rating_users):
+        # random sample of num_warm_users users from rating_users
+        sample_users = np.random.choice(list(rating_users), size=min(num_warm_users, len(rating_users)), replace=False)
+        for user_id in tqdm.tqdm(sample_users):
             group = groups.get_group(user_id)
             # Get the movies this user has rated
             rated_movie_indices = []
@@ -267,7 +290,7 @@ class ContentBasedRecommender:
         # print(f"Created profiles for {len(user_profiles)} users total")
         return 
 
-    def fit(self, movies_df: pd.DataFrame, users_df: pd.DataFrame, ratings_df: pd.DataFrame, watches_df: pd.DataFrame, mid_rating_watch_over: float = 0.5, age_bucket: int = 10, metadata: dict = None):
+    def fit(self, movies_df: pd.DataFrame, users_df: pd.DataFrame, ratings_df: pd.DataFrame, watches_df: pd.DataFrame, mid_rating_watch_over: float = 0.5, age_bucket: int = 10, metadata: dict = None, num_warm_users: int = 10000):
         """
         Train the content-based recommender
         
@@ -301,6 +324,11 @@ class ContentBasedRecommender:
             'age_bucket': age_bucket
         }
         self.metadata['trained_at'] = pd.Timestamp.now().isoformat()
+        self.metadata['data_start_timestamp'] = min(
+            watches_df['timestamp_start'].min() if not watches_df.empty else pd.Timestamp.max,
+            ratings_df['timestamp'].min() if not ratings_df.empty else pd.Timestamp.max
+        )        
+        self.metadata['data_end_timestamp'] = max(watches_df['timestamp_end'].max() if not watches_df.empty else pd.Timestamp.min, ratings_df['timestamp'].max() if not ratings_df.empty else pd.Timestamp.min)
 
         # merge watches_df with movies_df and calculate the percent watched 
         # If the user watched over half of the movie, it is automatically counted as a mid rating
@@ -321,7 +349,7 @@ class ContentBasedRecommender:
         self.movie_profiles = movie_features
         self.num_total_features = movie_features.shape[1]
 
-        self.create_user_profiles(users_df, movie_features)
+        self.create_user_profiles(users_df, movie_features, num_warm_users=num_warm_users)
 
         t_end = time.time()
         self.training_time = t_end - t_start
@@ -368,6 +396,8 @@ class ContentBasedRecommender:
             'git_commit_hash': self.metadata.get('git_commit_hash'),
             'pipeline_version': self.metadata.get('pipeline_version'),
             'data_version': self.metadata.get('data_version'),
+            'data_start_timestamp': self.metadata.get('data_start_timestamp'),
+            'data_end_timestamp': self.metadata.get('data_end_timestamp'),
             'training_params': self.metadata.get('training_params'),
             'trained_at': self.metadata.get('trained_at'),
             'inference_time': inference_time

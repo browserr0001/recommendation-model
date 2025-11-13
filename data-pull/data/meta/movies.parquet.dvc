@@ -1,5 +1,5 @@
 outs:
-- md5: 2fd55bc7b9dc7d88c84c879d08211be2
-  size: 9548120
+- md5: 76139337011cf3e766df86b4dff3a35f
+  size: 10690197
   hash: md5
   path: movies.parquet

@@ -1,14 +1,4 @@
 stages:
-  # prepare:
-  # This stage is to prepare the data collected for the past n days
-  #   cmd: python data-pull/prepare.py
-  #   deps:
-  #   - data-pull/prepare.py
-  #   params:
-  #   - prepare.n_days
-  #   outs:
-  #   - data-pull/
-
   train_initial_model:
     cmd: python app/model/src/train.py app/pkl_models
     deps:
@@ -19,6 +9,7 @@ stages:
     - train.mid_rating_watch_over
     - train.data_path
     - train.tag
+    - train.num_warm_users
     outs:
     - app/pkl_models/content_based_model_Initial_Model.pkl
 
@@ -32,15 +23,6 @@ stages:
     - train.mid_rating_watch_over
     - train.data_path
     - train.tag
+    - train.num_warm_users
     outs:
     - app/pkl_models/content_based_model_Updated_Model.pkl
-
-  # TODO: Add evaluation stage
-  # eval: 
-  #   cmd: python app/model/src/evaluate.py model.pkl
-  #   deps:
-  #   - app/model/src/evaluate.py
-  #   - model.pkl
-  #   params:
-  #   - evaluate.split
-  #   - evaluate.mode

@@ -14,19 +14,7 @@ MODEL_TAG = os.getenv('MODEL_TAG', "Updated_Model")
 if MODEL_TAG not in ["Initial_Model", "Updated_Model"]:
     MODEL_TAG = "Updated_Model"
 model = get_model(tag=MODEL_TAG)
-def get_dvc_hash_for_model(model_tag):
-    with open("dvc.lock", "r") as f:
-        dvc_lock = yaml.safe_load(f)
-    stages = dvc_lock.get("stages", {})
-    stage_name = f"train_{model_tag.lower()}"
-    stage = stages.get(stage_name, {})
-    for out in stage.get("outs", []):
-        if out.get("path") == f"app/pkl_models/content_based_model_{model_tag}.pkl":
-            return out.get("md5")
-    return None
-    
-MODEL_DVC_HASH = get_dvc_hash_for_model(MODEL_TAG)
-print(f"Model DVC hash: {MODEL_DVC_HASH}")
+
 # Get backend container name for logging
 BACKEND_NAME = os.environ.get("BACKEND_NAME", "unknown-backend")
 
@@ -50,7 +38,6 @@ def log_prediction(user_id, recommendations, prediction_metadata, inference_time
         'recommendations': recommendations,
         'inference_time': inference_time,
         'model_metadata': prediction_metadata, 
-        'model_dvc_hash': MODEL_DVC_HASH
     }
     
     # Append to daily log file
