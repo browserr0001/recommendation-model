@@ -10,8 +10,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the whole app directory (so Python sees `app` as a package)
 COPY app ./app
 
-# Expose Flask port
-EXPOSE 8082
+# Copy the router script into the image root
+COPY router.py ./router.py
+
+# Expose backend port
+EXPOSE 5001
 
 # Run the app as a module (so "app.main" is importable)
 CMD ["python", "-m", "app.main"]

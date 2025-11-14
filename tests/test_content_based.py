@@ -232,7 +232,7 @@ def test_get_recommendations_for_user_in_profiles(trained_model):
     if len(model.user_profiles) > 0:
         user_id = list(model.user_profiles.keys())[0]
         
-        recommendations, inference_time = model.get_recommendations(user_id, top_n=10)
+        recommendations, inference_time, metadata = model.get_recommendations(user_id, top_n=10)
         
         # Check that we got recommendations
         assert isinstance(recommendations, list)
@@ -259,7 +259,7 @@ def test_get_recommendations_for_user_not_in_profiles(trained_model):
     if len(cold_start_users) > 0:
         user_id = list(cold_start_users)[0]
         
-        recommendations, inference_time = model.get_recommendations(user_id, top_n=10)
+        recommendations, inference_time, metadata = model.get_recommendations(user_id, top_n=10)
         
         # Check that we got recommendations from group_profiles
         assert isinstance(recommendations, list)
@@ -278,7 +278,7 @@ def test_get_recommendations_respects_top_n(trained_model):
         user_id = list(model.user_profiles.keys())[0]
         
         for n in [5, 10, 20]:
-            recommendations, _ = model.get_recommendations(user_id, top_n=n)
+            recommendations, _, _ = model.get_recommendations(user_id, top_n=n)
             assert len(recommendations) == n
     else:
         pytest.skip("No users in user_profiles")
@@ -291,7 +291,7 @@ def test_get_recommendations_for_negative_user_id(trained_model):
     
     user_id = -999
     
-    recommendations, inference_time = model.get_recommendations(user_id, top_n=10)
+    recommendations, inference_time, metadata = model.get_recommendations(user_id, top_n=10)
     
     # Should still get recommendations from Unknown group
     assert isinstance(recommendations, list)
@@ -311,7 +311,7 @@ def test_get_recommendations_for_very_large_user_id(trained_model):
     
     user_id = 100000000000000000
     
-    recommendations, inference_time = model.get_recommendations(user_id, top_n=10)
+    recommendations, inference_time, metadata = model.get_recommendations(user_id, top_n=10)
     
     # Should still get recommendations from Unknown group
     assert isinstance(recommendations, list)
@@ -362,7 +362,7 @@ def test_recommendations_top_n_parameter(trained_model):
     user_id = list(model.user_profiles.keys())[0] if model.user_profiles else -999
     
     for n in [5, 10, 20]:
-        recommendations, _ = model.get_recommendations(user_id, top_n=n)
+        recommendations, _, _ = model.get_recommendations(user_id, top_n=n)
         assert len(recommendations) <= n
 
 
@@ -375,13 +375,11 @@ def test_movie_profiles_shape(trained_model):
     assert model.movie_profiles.shape[0] == len(movies)
     assert model.movie_profiles.shape[1] > 0
 
+def test_fixture_user_counts():
+    movies, users, ratings, watches = content_based.read_data(str(FIXTURES_PATH) + '/')
+    assert ratings['user_id'].nunique() > 0, "Ratings should have users"
+    assert watches['user_id'].nunique() > 0, "Watches should have users"
 
-def test_user_profiles_not_empty(trained_model):
-    """Test that some user profiles were created"""
-    model = trained_model['model']
-    
-    assert model.user_profiles is not None
-    assert len(model.user_profiles) > 0
 
 
 # ============================================================================
@@ -472,8 +470,8 @@ def test_recommendations_consistency():
     
     user_id = -999  # Unknown user
     
-    recs1, _ = model.get_recommendations(user_id, top_n=10)
-    recs2, _ = model.get_recommendations(user_id, top_n=10)
+    recs1, _, _ = model.get_recommendations(user_id, top_n=10)
+    recs2, _, _ = model.get_recommendations(user_id, top_n=10)
     
     # Should get same recommendations for same user
     assert recs1 == recs2

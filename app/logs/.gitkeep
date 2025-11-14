@@ -1,0 +1,2 @@
+# This directory contains prediction logs with provenance information
+# Log files (*.jsonl) are gitignored but the directory structure is tracked

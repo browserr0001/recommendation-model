@@ -2,7 +2,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 # Patch BEFORE importing app.main to avoid loading missing model
-with patch("app.model_loader.get_model", return_value=MagicMock(get_recommendations=lambda user_id, top_n: ([1, 2, 3, 4], 0.002))):
+with patch("app.model_loader.get_model", return_value=MagicMock(get_recommendations=lambda user_id, top_n: ([1, 2, 3, 4], 0.002, {"test": "metadata"}))):
     from app.main import app
 
 import pytest
@@ -30,7 +30,7 @@ def test_recommend_endpoint(client):
     assert all(x.strip().isdigit() for x in body.split(",")), f"Response was: {body}"
 
 
-@patch("app.main.model", MagicMock(get_recommendations=lambda user_id, top_n: ([], 0.001)))
+@patch("app.main.model", MagicMock(get_recommendations=lambda user_id, top_n: ([], 0.001, {})))
 def test_recommend_empty_list(client):
     """Handle edge case where model returns no recommendations."""
     res = client.get("/recommend/9999")

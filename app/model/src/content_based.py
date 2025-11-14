@@ -32,11 +32,32 @@ def read_data(path_prefix='data/'):
     movies.rename(columns={'id': 'movie_id'}, inplace=True)
     
 
-    def get_names(names):
-        return [g['name'] for g in names]
-    movies['genres'] = movies['genres'].apply(get_names)
-    movies['production_companies'] = movies['production_companies'].apply(get_names)
-    movies['production_countries'] = movies['production_countries'].apply(get_names)
+    def parse_name_field(value):
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return []
+        parsed = value
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return [value]
+        if isinstance(parsed, list):
+            names = []
+            for item in parsed:
+                if isinstance(item, dict) and "name" in item:
+                    names.append(item["name"])
+                elif isinstance(item, str):
+                    names.append(item)
+            return names
+        if isinstance(parsed, dict) and "name" in parsed:
+            return [parsed["name"]]
+        return []
+    movies['genres'] = movies['genres'].apply(parse_name_field)
+    movies['production_companies'] = movies['production_companies'].apply(parse_name_field)
+    movies['production_countries'] = movies['production_countries'].apply(parse_name_field)
 
     numeric_features = ['budget', 'popularity', 'revenue', 'runtime', 
                            'vote_average', 'vote_count']
@@ -66,6 +87,21 @@ class ContentBasedRecommender:
         self.movies_df:pd.DataFrame = None
         self.all_users:pd.DataFrame = None
         self.ratings_combined:pd.DataFrame = None
+        self.age_bucket:int = None
+        
+        # Metadata for provenance tracking
+        self.metadata = {
+            'model_name': None,
+            'model_tag': None,
+            'git_commit_hash': None,
+            'git_branch': None,
+            'pipeline_version': None,
+            'data_version': None,
+            'training_params': {},
+            'trained_at': None, 
+            'data_start_timestamp': None,
+            'data_end_timestamp': None
+        }
 
     def create_movie_profiles(self, movies: pd.DataFrame) -> np.ndarray:
         # Build movie profiles
@@ -167,7 +203,7 @@ class ContentBasedRecommender:
         return movie_features
 
 
-    def create_user_profiles(self, users: pd.DataFrame, movie_features: np.ndarray, top_n=20):
+    def create_user_profiles(self, users: pd.DataFrame, movie_features: np.ndarray, top_n=20, num_warm_users=10000):
         """Build user profiles with optimized cold-start handling"""
         print("Building user profiles...")
                 
@@ -176,11 +212,13 @@ class ContentBasedRecommender:
         
         # First handle users we have ratings for (fast path)
         rating_users = set(self.ratings_combined['user_id'].unique())
-        print(f"Processing {len(rating_users)} users with ratings...")
+        print(f"Processing {min(num_warm_users, len(rating_users))} users with ratings...")
         
         groups = self.ratings_combined.groupby('user_id')
         user_prefs_map = {}
-        for user_id in tqdm.tqdm(rating_users):
+        # random sample of num_warm_users users from rating_users
+        sample_users = np.random.choice(list(rating_users), size=min(num_warm_users, len(rating_users)), replace=False)
+        for user_id in tqdm.tqdm(sample_users):
             group = groups.get_group(user_id)
             # Get the movies this user has rated
             rated_movie_indices = []
@@ -220,7 +258,7 @@ class ContentBasedRecommender:
         # This will help in cold start for users not in the preprocessed set
         group_profiles = {}
         # Get the age_group in user_prefs_map_df
-        user_prefs_map_df['age_group'] = (user_prefs_map_df['age'] // 10) * 10
+        user_prefs_map_df['age_group'] = (user_prefs_map_df['age'] // self.age_bucket) * self.age_bucket
         user_prefs_map_df['age_group'] = user_prefs_map_df['age_group'].fillna(-1).astype(int)
         user_prefs_map_df['gender'] = user_prefs_map_df['gender'].fillna('Unknown')
         # group user_prefs_map_df by gender and age_group and get the mean of user_prefs columns
@@ -252,7 +290,7 @@ class ContentBasedRecommender:
         # print(f"Created profiles for {len(user_profiles)} users total")
         return 
 
-    def fit(self, movies_df: pd.DataFrame, users_df: pd.DataFrame, ratings_df: pd.DataFrame, watches_df: pd.DataFrame, mid_rating_watch_over: float = 0.5):
+    def fit(self, movies_df: pd.DataFrame, users_df: pd.DataFrame, ratings_df: pd.DataFrame, watches_df: pd.DataFrame, mid_rating_watch_over: float = 0.5, age_bucket: int = 10, metadata: dict = None, num_warm_users: int = 10000):
         """
         Train the content-based recommender
         
@@ -261,6 +299,7 @@ class ContentBasedRecommender:
         users_df: DataFrame with user metadata
         ratings_df: DataFrame with user ratings
         watches_df: Optional DataFrame with watch data
+        metadata: Dictionary containing provenance information (git hash, data version, etc.)
         """
         # Validate input dataframes
         if movies_df.empty:
@@ -275,6 +314,21 @@ class ContentBasedRecommender:
         t_start = time.time()
         self.movies_df = movies_df.copy()
         self.all_users = users_df.copy()
+        self.age_bucket = age_bucket
+
+        # Store training parameters and metadata for provenance
+        if metadata:
+            self.metadata.update(metadata)
+        self.metadata['training_params'] = {
+            'mid_rating_watch_over': mid_rating_watch_over,
+            'age_bucket': age_bucket
+        }
+        self.metadata['trained_at'] = pd.Timestamp.now().isoformat()
+        self.metadata['data_start_timestamp'] = min(
+            watches_df['timestamp_start'].min() if not watches_df.empty else pd.Timestamp.max,
+            ratings_df['timestamp'].min() if not ratings_df.empty else pd.Timestamp.max
+        )        
+        self.metadata['data_end_timestamp'] = max(watches_df['timestamp_end'].max() if not watches_df.empty else pd.Timestamp.min, ratings_df['timestamp'].max() if not ratings_df.empty else pd.Timestamp.min)
 
         # merge watches_df with movies_df and calculate the percent watched 
         # If the user watched over half of the movie, it is automatically counted as a mid rating
@@ -295,7 +349,7 @@ class ContentBasedRecommender:
         self.movie_profiles = movie_features
         self.num_total_features = movie_features.shape[1]
 
-        self.create_user_profiles(users_df, movie_features)
+        self.create_user_profiles(users_df, movie_features, num_warm_users=num_warm_users)
 
         t_end = time.time()
         self.training_time = t_end - t_start
@@ -303,17 +357,18 @@ class ContentBasedRecommender:
         
         return self
     
-    def get_recommendations(self, user_id, top_n=10, exclude_seen=True):
+    def get_recommendations(self, user_id:int, top_n=10):
         """
         Get movie recommendations for a user
         
         Parameters:
         user_id: User ID to get recommendations for
         top_n: Number of recommendations to return
-        exclude_seen: Whether to exclude movies the user has already rated
         
         Returns:
-        recommendations: DataFrame with movie recommendations
+        recommendations: list of movie IDs
+        inference_time: time taken for inference
+        prediction_metadata: dictionary with model version and provenance info
         """
         t_start = time.time()
         if user_id in self.user_profiles.keys():
@@ -322,17 +377,37 @@ class ContentBasedRecommender:
         else:
             # Cold start users
             try: 
-                user_age = self.all_users[self.all_users['user_id'] == user_id]['age'][0]
-                user_gender = self.all_users[self.all_users['user_id'] == user_id]['gender'][0]
-                if user_age//10*10 in self.all_age_groups and user_gender in self.all_genders:
-                    ranked_movie_indices = self.group_profiles[user_gender][user_age//10*10]
+                user_age = self.all_users[self.all_users['user_id'] == user_id]['age'].values[0]
+                user_gender = self.all_users[self.all_users['user_id'] == user_id]['gender'].values[0]
+                if user_age//self.age_bucket*self.age_bucket in self.all_age_groups and user_gender in self.all_genders:
+                    ranked_movie_indices = self.group_profiles[user_gender][user_age//self.age_bucket*self.age_bucket]
                 else:
                     ranked_movie_indices = self.group_profiles['Unknown'][-1]
             except:
                 ranked_movie_indices = self.group_profiles['Unknown'][-1]
         
         movie_ids = self.movies_df.iloc[ranked_movie_indices]['movie_id'].values
-        return movie_ids[:top_n].tolist(), time.time() - t_start
+        inference_time = time.time() - t_start
+        
+        # Return prediction metadata for logging
+        prediction_metadata = {
+            'model_name': self.metadata.get('model_name'),
+            'model_tag': self.metadata.get('model_tag'),
+            'git_commit_hash': self.metadata.get('git_commit_hash'),
+            'pipeline_version': self.metadata.get('pipeline_version'),
+            'data_version': self.metadata.get('data_version'),
+            'data_start_timestamp': str(self.metadata.get('data_start_timestamp')),
+            'data_end_timestamp': str(self.metadata.get('data_end_timestamp')),
+            'training_params': self.metadata.get('training_params'),
+            'trained_at': self.metadata.get('trained_at'),
+            'inference_time': inference_time
+        }
+        
+        return movie_ids[:top_n].tolist(), inference_time, prediction_metadata
+    
+    def get_metadata(self):
+        """Return model metadata for provenance tracking"""
+        return self.metadata.copy()
 
     def get_model_size(self):
         """

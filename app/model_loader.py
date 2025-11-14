@@ -9,9 +9,9 @@ class ForceImportUnpickler(pickle.Unpickler):
             return ContentBasedRecommender
         return super().find_class(module, name)
 
-def get_model():
-    print("loading model...")
-    model_path = os.path.join(os.path.dirname(__file__), 'pkl_models', 'content_based_model_full.pkl')
+def get_model(tag="Updated_Model") -> ContentBasedRecommender:
+    print(f"loading model with tag: {tag}...")
+    model_path = os.path.join(os.path.dirname(__file__), 'pkl_models', f'content_based_model_{tag}.pkl')
     with open(model_path, 'rb') as f:
         model = ForceImportUnpickler(f).load()
     return model

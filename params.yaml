@@ -1,0 +1,10 @@
+evaluate:
+  mode: offline
+  split: 0.2
+train:
+  age_bucket: 10
+  data_path: data-pull/data/
+  mid_rating_watch_over: 0.5
+  pipeline_version: v1.0
+  tag: Updated_Model
+  num_warm_users: 10000

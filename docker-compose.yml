@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  # Backend instance A: first model
+  backend-a:
+    build: .
+    container_name: recommender-backend-a
+    environment:
+      - PORT=5001
+      - BACKEND_NAME=backend-A
+      - MODEL_TAG=Initial_Model
+    expose:
+      - "5001"
+    volumes:
+      - ./app/pkl_models:/app/app/pkl_models:ro
+      - ./app/logs:/app/app/logs:rw
+      
+      
+  # Backend instance B: second model
+  backend-b:
+    build: .
+    container_name: recommender-backend-b
+    environment:
+      - PORT=5001
+      - BACKEND_NAME=backend-B
+      - MODEL_TAG=Updated_Model
+    expose:
+      - "5001"
+    volumes:
+      - ./app/pkl_models:/app/app/pkl_models:ro
+      - ./app/logs:/app/app/logs:rw
+      
+  # Router / load balancer
+  router:
+    build: .
+    container_name: recommender-router
+    command: ["python", "router.py"]
+    environment:
+      # Router sees both backends by their service names + ports
+      - BACKENDS=http://backend-a:5001,http://backend-b:5001
+    depends_on:
+      - backend-a
+      - backend-b
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./app/pkl_models:/app/app/pkl_models:ro
+      
