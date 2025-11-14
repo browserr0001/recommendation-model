@@ -9,6 +9,8 @@ services:
       - PORT=5001
       - BACKEND_NAME=backend-A
       - MODEL_TAG=Initial_Model
+      - WATCHDOG_FORCE_POLLING=1
+      - MODEL_WATCH_INTERVAL=0.5
     expose:
       - "5001"
     volumes:
@@ -24,6 +26,8 @@ services:
       - PORT=5001
       - BACKEND_NAME=backend-B
       - MODEL_TAG=Updated_Model
+      - WATCHDOG_FORCE_POLLING=1
+      - MODEL_WATCH_INTERVAL=0.5
     expose:
       - "5001"
     volumes:
