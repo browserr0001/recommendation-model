@@ -51,9 +51,28 @@ fi
 # export GIT_COMMITTER_NAME="Automated Retraining"
 # export GIT_COMMITTER_EMAIL="retrain@example.com"
 
+
+# 4. Update params.yaml to mark this as production training
+echo "Step 4: Configuring training parameters..."
+python3 -c "
+import yaml
+with open('params.yaml', 'r') as f:
+    params = yaml.safe_load(f)
+params['train']['train_for_prod'] = True
+params['train']['tag'] = 'Updated_Model'
+with open('params.yaml', 'w') as f:
+    yaml.dump(params, f, default_flow_style=False)
+print('✓ Updated params.yaml with tag: Updated_Model')
+"
+
+# 5. Run DVC pipeline to retrain ONLY the updated model
+echo "Step 5: Running DVC pipeline to retrain Updated_Model..."
+dvc repro train_updated_model
+
+
 # 1. Pull latest data from DVC remote (if configured)
-echo "Step 1: Syncing data with DVC remote..."
-dvc pull data-pull/data/ || echo "Warning: DVC pull failed or no remote configured"
+# echo "Step 1: Syncing data with DVC remote..."
+# dvc pull data-pull/data/ || echo "Warning: DVC pull failed or no remote configured"
 
 # 2. Add/update data files in DVC
 echo "Step 2: Adding data files to DVC..."
@@ -76,24 +95,6 @@ if git diff --cached --quiet; then
 else
     git commit -m "Update data version $(date +%Y-%m-%d)" || echo "No changes to commit"
 fi
-
-# 4. Update params.yaml to mark this as production training
-echo "Step 4: Configuring training parameters..."
-python3 -c "
-import yaml
-with open('params.yaml', 'r') as f:
-    params = yaml.safe_load(f)
-params['train']['train_for_prod'] = True
-params['train']['tag'] = 'Updated_Model'
-with open('params.yaml', 'w') as f:
-    yaml.dump(params, f, default_flow_style=False)
-print('✓ Updated params.yaml with tag: Updated_Model')
-"
-
-# 5. Run DVC pipeline to retrain ONLY the updated model
-echo "Step 5: Running DVC pipeline to retrain Updated_Model..."
-dvc repro train_updated_model
-
 
 # 6. Push DVC outputs (model) to remote
 echo "Step 6: Pushing model to DVC remote..."
