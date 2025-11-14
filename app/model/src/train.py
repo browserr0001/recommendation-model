@@ -4,6 +4,7 @@ import sys
 import subprocess
 import tempfile
 import shutil
+from pathlib import Path
 import yaml
 from content_based import ContentBasedRecommender
 from content_based import read_data
@@ -132,6 +133,17 @@ def atomic_copy_file(source_path, destination_path):
             os.remove(temp_file_path)
         raise e
 
+
+def refresh_training_data():
+    """Run merge_hourly_data.py to materialize the latest training parquet files."""
+    project_root = Path(__file__).resolve().parents[3]
+    merge_script = project_root / "data-pull" / "merge_hourly_data.py"
+    if not merge_script.exists():
+        raise FileNotFoundError(f"Merge script not found at {merge_script}")
+    print(f"[retrain] Refreshing training data via {merge_script}")
+    subprocess.run([sys.executable, str(merge_script)], check=True)
+    print("[retrain] Training data refresh complete.")
+
 def main():
     params = yaml.safe_load(open("params.yaml"))["train"]
     if len(sys.argv) != 2:
@@ -141,6 +153,8 @@ def main():
 
     output = sys.argv[1]
 
+    # Merge the data before training
+    refresh_training_data()
     # Train the model 
     model = train(params, output)
     # Save with a versioned filename
