@@ -88,7 +88,7 @@ def recommend(userid):
     return Response(result, mimetype='text/plain')
 
 
-@app.route('/model-info', methods=['GET'])
+@app.route('/metrics', methods=['GET'])
 def model_info():
     current_model, current_path = get_current_model_and_path()
     metadata = current_model.get_metadata()
