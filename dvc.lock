@@ -28,21 +28,22 @@ stages:
     deps:
     - path: app/model/src/train.py
       hash: md5
-      md5: b46adc0aac17a82c740eb49e6535ff2f
-      size: 6473
+      md5: 77261262d6c424cce4ac17a02ac27810
+      size: 5866
     - path: data-pull/data/
       hash: md5
-      md5: 2c6940d35b40d93a325ea450227ed279.dir
-      size: 21613177
-      nfiles: 13
+      md5: 82b649aeafee51f74791b39cfa098f18.dir
+      size: 26396919
+      nfiles: 15
     params:
       params.yaml:
         train.age_bucket: 10
         train.data_path: data-pull/data/
         train.mid_rating_watch_over: 0.5
-        train.tag: Initial_Model
+        train.num_warm_users: 10000
+        train.tag: Updated_Model
     outs:
     - path: app/pkl_models/content_based_model_Updated_Model.pkl
       hash: md5
-      md5: a6a425624a5eca26b62707b169ab88ac
-      size: 72281312
+      md5: dd73f7266b7017a0da36bf1ea2650df5
+      size: 41930649
