@@ -1,2 +1,11 @@
 # Ignore the logs directory
 app/logs/*
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git
+
+# Optional: Ignore other large folders
+# data/
+# mlruns/
