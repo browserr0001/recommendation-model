@@ -16,8 +16,8 @@ services:
     volumes:
       - ./app/pkl_models:/app/app/pkl_models:ro
       - ./app/logs:/app/app/logs:rw
-      
-      
+    restart: always
+
   # Backend instance B: second model
   backend-b:
     build: .
@@ -33,7 +33,8 @@ services:
     volumes:
       - ./app/pkl_models:/app/app/pkl_models:ro
       - ./app/logs:/app/app/logs:rw
-      
+    restart: always
+
   # Router / load balancer
   router:
     build: .
@@ -49,4 +50,4 @@ services:
       - "8082:8082"
     volumes:
       - ./app/pkl_models:/app/app/pkl_models:ro
-      
+    restart: always
