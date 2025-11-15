@@ -154,7 +154,7 @@ def main():
     output = sys.argv[1]
 
     # Merge the data before training
-    refresh_training_data()
+    # refresh_training_data()
     # Train the model 
     model = train(params, output)
     # Save with a versioned filename

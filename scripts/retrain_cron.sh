@@ -52,27 +52,13 @@ fi
 # export GIT_COMMITTER_EMAIL="retrain@example.com"
 
 
-# Update params.yaml to mark this as production training
-echo "Step: Configuring training parameters..."
-python3 -c "
-import yaml
-with open('params.yaml', 'r') as f:
-    params = yaml.safe_load(f)
-params['train']['train_for_prod'] = True
-params['train']['tag'] = 'Updated_Model'
-with open('params.yaml', 'w') as f:
-    yaml.dump(params, f, default_flow_style=False)
-print('✓ Updated params.yaml with tag: Updated_Model')
-"
-
-# Run DVC pipeline to retrain ONLY the updated model
-echo "Step: Running DVC pipeline to retrain Updated_Model..."
-dvc repro train_updated_model
-
-
 # 1. Pull latest data from DVC remote (if configured)
 # echo "Step 1: Syncing data with DVC remote..."
 # dvc pull data-pull/data/ || echo "Warning: DVC pull failed or no remote configured"
+
+# 1. Merge the data 
+echo "Step: Merging training data..."
+python data-pull/merge_hourly_data.py || echo "Warning: Data merge failed, check logs for details"
 
 # 2. Add/update data files in DVC
 echo "Step: Adding data files to DVC..."
@@ -91,17 +77,38 @@ dvc push data-pull/data/watches/watches.parquet
 
 # Commit data changes to git
 echo "Step: Committing data version to git..."
-git add data-pull/data/ratings/ratings.parquet.dvc \
-        data-pull/data/watches/watches.parquet.dvc \
-        data-pull/data/meta/movies.parquet.dvc \
-        data-pull/data/meta/users_new.parquet.dvc \
-        data-pull/data/meta/users.parquet.dvc
+# git add data-pull/data/ratings/ratings.parquet.dvc \
+#         data-pull/data/watches/watches.parquet.dvc \
+#         data-pull/data/meta/movies.parquet.dvc \
+#         data-pull/data/meta/users_new.parquet.dvc \
+#         data-pull/data/meta/users.parquet.dvc
 
 if git diff --cached --quiet; then
     echo "No data changes detected"
 else
-    git commit -m "Update data version $(date +%Y-%m-%d)" || echo "No changes to commit"
+    # git commit -m "Update data version $(date +%Y-%m-%d)" || echo "No changes to commit"
+    echo this is where git commits
 fi
+
+# Update params.yaml to mark this as production training
+echo "Step: Configuring training parameters..."
+python3 -c "
+import yaml
+with open('params.yaml', 'r') as f:
+    params = yaml.safe_load(f)
+params['train']['train_for_prod'] = True
+params['train']['tag'] = 'Updated_Model'
+with open('params.yaml', 'w') as f:
+    yaml.dump(params, f, default_flow_style=False)
+print('✓ Updated params.yaml with tag: Updated_Model')
+"
+
+# Run DVC pipeline to retrain ONLY the updated model
+# This script will retrain the model to archive/model-store and copy the latest model to app/pkl_models
+echo "Step: Retrain Updated_Model..."
+python app/model/src/train.py app/pkl_models
+
+
 
 # Push DVC outputs (model) to remote
 echo "Step: Pushing model to DVC remote..."
@@ -109,7 +116,7 @@ dvc push app/pkl_models/content_based_model_Updated_Model.pkl || echo "Warning: 
 
 # Commit pipeline outputs and model version
 echo "Step: Committing pipeline changes..."
-git add dvc.lock params.yaml
+# git add dvc.lock params.yaml
 
 if git diff --cached --quiet; then
     echo "No pipeline changes to commit"
@@ -170,7 +177,8 @@ print(f'✓ Model file size: {os.path.getsize(model_path) / (1024*1024):.2f} MB'
 
 # Push to git remote
 echo "Step: Pushing to git remote..."
-git push || echo "Warning: Git push failed (check remote configuration)"
+# git push || echo "Warning: Git push failed (check remote configuration)"
+echo this is where git pushes
 
 # Log success metrics
 echo "Step: Logging completion metrics..."
