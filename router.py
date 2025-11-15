@@ -39,11 +39,11 @@ def recommend(userid):
     )
 
 
-@app.get("/model-info")
+@app.get("/metrics")
 def model_info():
     backend = choose_backend()
     try:
-        resp = requests.get(f"{backend}/model-info", timeout=0.55)
+        resp = requests.get(f"{backend}/metrics", timeout=0.55)
     except requests.RequestException as e:
         return Response(f"Backend error: {e}", status=502, mimetype="text/plain")
 

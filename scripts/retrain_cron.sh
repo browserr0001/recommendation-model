@@ -52,8 +52,8 @@ fi
 # export GIT_COMMITTER_EMAIL="retrain@example.com"
 
 
-# 4. Update params.yaml to mark this as production training
-echo "Step 4: Configuring training parameters..."
+# Update params.yaml to mark this as production training
+echo "Step: Configuring training parameters..."
 python3 -c "
 import yaml
 with open('params.yaml', 'r') as f:
@@ -65,8 +65,8 @@ with open('params.yaml', 'w') as f:
 print('✓ Updated params.yaml with tag: Updated_Model')
 "
 
-# 5. Run DVC pipeline to retrain ONLY the updated model
-echo "Step 5: Running DVC pipeline to retrain Updated_Model..."
+# Run DVC pipeline to retrain ONLY the updated model
+echo "Step: Running DVC pipeline to retrain Updated_Model..."
 dvc repro train_updated_model
 
 
@@ -75,15 +75,22 @@ dvc repro train_updated_model
 # dvc pull data-pull/data/ || echo "Warning: DVC pull failed or no remote configured"
 
 # 2. Add/update data files in DVC
-echo "Step 2: Adding data files to DVC..."
+echo "Step: Adding data files to DVC..."
 dvc add data-pull/data/ratings/ratings.parquet
 dvc add data-pull/data/watches/watches.parquet
 dvc add data-pull/data/meta/movies.parquet
 dvc add data-pull/data/meta/users_new.parquet
 dvc add data-pull/data/meta/users.parquet
 
-# 3. Commit data changes to git
-echo "Step 3: Committing data version to git..."
+# Push to dvc remote
+echo "Step: Pushing data files to DVC Remote..."
+dvc push data-pull/data/meta/movies.parquet
+dvc push data-pull/data/meta/users.parquet
+dvc push data-pull/data/ratings/ratings.parquet
+dvc push data-pull/data/watches/watches.parquet
+
+# Commit data changes to git
+echo "Step: Committing data version to git..."
 git add data-pull/data/ratings/ratings.parquet.dvc \
         data-pull/data/watches/watches.parquet.dvc \
         data-pull/data/meta/movies.parquet.dvc \
@@ -96,12 +103,12 @@ else
     git commit -m "Update data version $(date +%Y-%m-%d)" || echo "No changes to commit"
 fi
 
-# 6. Push DVC outputs (model) to remote
-echo "Step 6: Pushing model to DVC remote..."
+# Push DVC outputs (model) to remote
+echo "Step: Pushing model to DVC remote..."
 dvc push app/pkl_models/content_based_model_Updated_Model.pkl || echo "Warning: DVC push failed or no remote configured"
 
-# 7. Commit pipeline outputs and model version
-echo "Step 7: Committing pipeline changes..."
+# Commit pipeline outputs and model version
+echo "Step: Committing pipeline changes..."
 git add dvc.lock params.yaml
 
 if git diff --cached --quiet; then
@@ -110,8 +117,8 @@ else
     git commit -m "Retrain Updated_Model $(date +%Y-%m-%d) [automated]" || echo "Commit failed or no changes"
 fi
 
-# 8. Verify model file exists and get metadata
-echo "Step 8: Verifying model deployment..."
+# Verify model file exists and get metadata
+echo "Step: Verifying model deployment..."
 python3 -c "
 import pickle
 import os
@@ -161,12 +168,12 @@ except Exception as e:
 print(f'✓ Model file size: {os.path.getsize(model_path) / (1024*1024):.2f} MB')
 "
 
-# 9. Push to git remote
-echo "Step 9: Pushing to git remote..."
-git push origin main || echo "Warning: Git push failed (check remote configuration)"
+# Push to git remote
+echo "Step: Pushing to git remote..."
+git push || echo "Warning: Git push failed (check remote configuration)"
 
-# 10. Log success metrics
-echo "Step 10: Logging completion metrics..."
+# Log success metrics
+echo "Step: Logging completion metrics..."
 python3 -c "
 import json
 from datetime import datetime

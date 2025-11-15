@@ -28,12 +28,12 @@ stages:
     deps:
     - path: app/model/src/train.py
       hash: md5
-      md5: 8d11365197f67892218095e112ceda91
-      size: 6524
+      md5: 77261262d6c424cce4ac17a02ac27810
+      size: 5866
     - path: data-pull/data/
       hash: md5
-      md5: 94f2ecded13d96db7ad7ebd89f5953e1.dir
-      size: 26397749
+      md5: 82b649aeafee51f74791b39cfa098f18.dir
+      size: 26396919
       nfiles: 15
     params:
       params.yaml:
@@ -45,5 +45,5 @@ stages:
     outs:
     - path: app/pkl_models/content_based_model_Updated_Model.pkl
       hash: md5
-      md5: 429ef28afafcb5b545db6033a7bf3b49
-      size: 41930666
+      md5: dd73f7266b7017a0da36bf1ea2650df5
+      size: 41930649
