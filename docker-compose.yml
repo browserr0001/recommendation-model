@@ -13,6 +13,8 @@ services:
       - MODEL_WATCH_INTERVAL=0.5
     expose:
       - "5001"
+    ports:
+      - "9001:5001"
     volumes:
       - ./app/pkl_models:/app/app/pkl_models:ro
       - ./app/logs:/app/app/logs:rw
@@ -30,6 +32,8 @@ services:
       - MODEL_WATCH_INTERVAL=0.5
     expose:
       - "5001"
+    ports:
+      - "9002:5001"
     volumes:
       - ./app/pkl_models:/app/app/pkl_models:ro
       - ./app/logs:/app/app/logs:rw

@@ -64,26 +64,38 @@ def test():
 @app.route('/recommend/<userid>', methods=['GET'])
 def recommend(userid):
     global get_user_metadata_calls, users_in_cache_hits, inference_time, user_id_log
-    
     try:
-        user_id = int(userid)
-    except Exception:
-        user_id = userid  # fallback to string
-    
-    user_id_log = user_id
+        
+        try:
+            user_id = int(userid)
+        except Exception:
+            user_id = userid  # fallback to string
+        
+        user_id_log = user_id
 
-    # get the current model and path
-    local_model = model
+        # get the current model and path
+        local_model = model
 
-    # Get recommendations with metadata
-    recs, inf_time, prediction_metadata = local_model.get_recommendations(user_id, top_n=20)
-    result = ','.join(str(i) for i in recs)
+        # Get recommendations with metadata
+        recs, inf_time, prediction_metadata = local_model.get_recommendations(user_id, top_n=20)
+        result = ','.join(str(i) for i in recs)
 
-    # Store inference time
-    inference_time = inf_time
+        # Store inference time
+        inference_time = inf_time
 
-    # Log prediction with full provenance
-    log_prediction(user_id, recs, prediction_metadata, inf_time)
+        # Log prediction with full provenance
+        log_prediction(user_id, recs, prediction_metadata, inf_time)
+    except Exception as e:
+        log_entry = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'user_id': user_id
+        }
+
+        # Append to daily log file
+        log_file = os.path.join(LOGS_DIR, f"predictions_errors_{datetime.utcnow().strftime('%Y%m%d')}.jsonl")
+        with open(log_file, 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')
+            f.write(str(e) + '\n')
 
     return Response(result, mimetype='text/plain')
 
