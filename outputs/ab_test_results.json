@@ -1,0 +1,20 @@
+{
+  "timestamp": "2025-11-17T11:34:52.705082",
+  "configuration": {
+    "predictions_log": "app/logs/predictions_20251115.jsonl",
+    "model_a_timestamp": "2025-11-13T22:02:06.510993",
+    "model_b_timestamp": "2025-11-14T23:45:05.172431",
+    "time_window_days": 7,
+    "k": 20,
+    "alpha": 0.05
+  },
+  "model_a": {
+    "timestamp": "2025-11-13T22:02:06.510993",
+    "num_predictions": 195855,
+    "num_users": 163645,
+    "mean_precision": 0.0039802621528308236,
+    "median_precision": 0.0,
+    "std_precision": 0.013566790700871514,
+    "overall_hit_rate": 0.004019044701437288,
+    "user_hit_rate": 0.07942803018729568,
+    "total_hits": 

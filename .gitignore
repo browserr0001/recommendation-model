@@ -14,3 +14,4 @@ dvc_remote_setup.md
 archive/data_store/
 archive/model_store/
 hourly_data/
+outputs/hits_data.csv
