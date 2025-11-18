@@ -228,25 +228,25 @@ def run_ab_test(predictions_log: str,
         },
         'model_a': {
             'timestamp': model_a_timestamp,
-            'num_predictions': comparison['model_a'].num_predictions,
-            'num_users': comparison['model_a'].num_users,
+            'num_predictions': int(comparison['model_a'].num_predictions),
+            'num_users': int(comparison['model_a'].num_users),
             'mean_precision': float(comparison['model_a'].mean_precision),
             'median_precision': float(comparison['model_a'].median_precision),
             'std_precision': float(comparison['model_a'].std_precision),
             'overall_hit_rate': float(comparison['model_a'].overall_hit_rate),
             'user_hit_rate': float(comparison['model_a'].user_hit_rate),
-            'total_hits': comparison['model_a'].total_hits
+            'total_hits': int(comparison['model_a'].total_hits)
         },
         'model_b': {
             'timestamp': model_b_timestamp,
-            'num_predictions': comparison['model_b'].num_predictions,
-            'num_users': comparison['model_b'].num_users,
+            'num_predictions': int(comparison['model_b'].num_predictions),
+            'num_users': int(comparison['model_b'].num_users),
             'mean_precision': float(comparison['model_b'].mean_precision),
             'median_precision': float(comparison['model_b'].median_precision),
             'std_precision': float(comparison['model_b'].std_precision),
             'overall_hit_rate': float(comparison['model_b'].overall_hit_rate),
             'user_hit_rate': float(comparison['model_b'].user_hit_rate),
-            'total_hits': comparison['model_b'].total_hits
+            'total_hits': int(comparison['model_b'].total_hits)
         },
         'comparison': {
             'precision_difference': float(comparison['precision_difference']),
@@ -257,14 +257,22 @@ def run_ab_test(predictions_log: str,
         'statistical_tests': {
             test_name: {
                 'p_value': float(result.p_value),
-                'is_significant': result.is_significant,
+                'is_significant': bool(result.is_significant),
                 'effect_size': float(result.effect_size),
                 'confidence_interval': [float(result.confidence_interval[0]), float(result.confidence_interval[1])],
                 'interpretation': result.interpretation
             }
             for test_name, result in test_results.items()
         },
-        'normality_tests': normality_results,
+        'normality_tests': {
+            model_name: {
+                'test': model_result['test'],
+                'statistic': float(model_result['statistic']),
+                'p_value': float(model_result['p_value']),
+                'is_normal': bool(model_result['is_normal'])
+            }
+            for model_name, model_result in normality_results.items()
+        },
         'recommendation': determine_recommendation(comparison, test_results)
     }
 

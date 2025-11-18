@@ -5,11 +5,20 @@ This module loads prediction logs and user interaction data for A/B testing.
 """
 
 import json
+import logging
 import pandas as pd
 import numpy as np
+import pytz
 from typing import List, Optional, Tuple
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 class PredictionLogLoader:
@@ -35,13 +44,28 @@ class PredictionLogLoader:
                 - recommended_movies (list of movie IDs)
                 - trained_at (model identifier)
                 - model_tag
+
+        Raises:
+            FileNotFoundError: If jsonl_path doesn't exist
+            ValueError: If no predictions found for specified models
         """
+        # Validate inputs
+        path = Path(jsonl_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Predictions file not found: {jsonl_path}")
+
+        if not model_timestamps:
+            raise ValueError("model_timestamps cannot be empty")
+
         print(f"Loading predictions from {jsonl_path}...")
         print(f"Filtering for models: {model_timestamps}")
 
         predictions = []
         total_lines = 0
         matched_lines = 0
+        decode_errors = 0
+        missing_metadata_count = 0
+        missing_key_errors = []
 
         with open(jsonl_path, 'r') as f:
             for line in f:
@@ -51,6 +75,9 @@ class PredictionLogLoader:
 
                     # Extract model metadata
                     if 'model_metadata' not in data:
+                        missing_metadata_count += 1
+                        if missing_metadata_count <= 5:  # Log first 5 examples
+                            logger.warning(f"Line {total_lines}: Missing 'model_metadata' field")
                         continue
 
                     trained_at = data['model_metadata'].get('trained_at')
@@ -65,7 +92,7 @@ class PredictionLogLoader:
                     # Ensure timezone consistency - convert to UTC aware
                     timestamp = pd.to_datetime(data['timestamp'])
                     if timestamp.tzinfo is None:
-                        import pytz
+                        # Assume naive timestamps are UTC
                         timestamp = timestamp.replace(tzinfo=pytz.UTC)
 
                     predictions.append({
@@ -76,10 +103,15 @@ class PredictionLogLoader:
                         'model_tag': data['model_metadata'].get('model_tag', 'unknown')
                     })
 
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    decode_errors += 1
+                    if decode_errors <= 5:  # Log first 5 examples
+                        logger.warning(f"Line {total_lines}: JSON decode error - {e}")
                     continue
                 except KeyError as e:
-                    print(f"Warning: Missing key {e} in line {total_lines}")
+                    missing_key = str(e)
+                    if missing_key not in [err[0] for err in missing_key_errors]:
+                        missing_key_errors.append((missing_key, total_lines))
                     continue
 
                 # Progress update every 100k lines
@@ -87,6 +119,21 @@ class PredictionLogLoader:
                     print(f"  Processed {total_lines:,} lines, matched {matched_lines:,} predictions...")
 
         print(f"Loaded {matched_lines:,} predictions from {total_lines:,} total log entries")
+
+        # Log data quality issues
+        if decode_errors > 0:
+            logger.warning(f"Found {decode_errors} JSON decode errors (shown first 5)")
+        if missing_metadata_count > 0:
+            logger.warning(f"Found {missing_metadata_count} lines without model_metadata")
+        if missing_key_errors:
+            logger.warning(f"Found missing keys: {dict(missing_key_errors)}")
+
+        # Log overall data quality
+        quality_rate = (matched_lines / total_lines * 100) if total_lines > 0 else 0
+        logger.info(f"Data quality: {quality_rate:.2f}% of lines successfully parsed and matched")
+
+        if matched_lines == 0:
+            raise ValueError(f"No predictions found for specified models: {model_timestamps}")
 
         self.predictions_df = pd.DataFrame(predictions)
 
@@ -125,7 +172,16 @@ class InteractionLoader:
                 - movie_id
                 - interaction_timestamp
                 - interaction_type ('rating' or 'watch')
+
+        Raises:
+            FileNotFoundError: If ratings_path or watches_path doesn't exist
         """
+        # Validate inputs
+        if not Path(ratings_path).exists():
+            raise FileNotFoundError(f"Ratings file not found: {ratings_path}")
+        if not Path(watches_path).exists():
+            raise FileNotFoundError(f"Watches file not found: {watches_path}")
+
         print(f"\nLoading user interactions...")
 
         # Load ratings
@@ -164,8 +220,7 @@ class InteractionLoader:
         if start_date is not None:
             # Ensure start_date is timezone-aware to match interactions_df
             if start_date.tzinfo is None:
-                # Make it UTC aware
-                import pytz
+                # Assume naive timestamps are UTC
                 start_date = start_date.replace(tzinfo=pytz.UTC)
 
             print(f"  Filtering interactions after {start_date}...")

@@ -31,14 +31,25 @@ class StatisticalTestResult:
 class ABTester:
     """Perform statistical tests for A/B testing"""
 
-    def __init__(self, alpha: float = 0.05):
+    def __init__(self, alpha: float = 0.05, apply_bonferroni: bool = False, n_tests: int = 4):
         """
         Initialize A/B tester
 
         Args:
             alpha: Significance level (default: 0.05 for 95% confidence)
+            apply_bonferroni: Whether to apply Bonferroni correction for multiple testing
+            n_tests: Number of tests to be run (for Bonferroni correction)
         """
         self.alpha = alpha
+        self.apply_bonferroni = apply_bonferroni
+        self.n_tests = n_tests
+
+        # Calculate adjusted alpha if using Bonferroni correction
+        if apply_bonferroni:
+            self.adjusted_alpha = alpha / n_tests
+            print(f"Bonferroni correction applied: adjusted α = {self.adjusted_alpha:.4f} (original α = {alpha}, n_tests = {n_tests})")
+        else:
+            self.adjusted_alpha = alpha
 
     def mann_whitney_test(self,
                          model_a_metrics: np.ndarray,
@@ -67,13 +78,26 @@ class ABTester:
             alternative=alternative
         )
 
-        # Determine significance
-        is_significant = p_value < self.alpha
+        # Determine significance using adjusted alpha
+        is_significant = p_value < self.adjusted_alpha
 
         # Calculate effect size (rank-biserial correlation)
+        # Mann-Whitney U statistic ranges from 0 to n_a * n_b
+        # Rank-biserial correlation formula: r = 1 - (2U)/(n_a * n_b)
+        # However, we need to convert to a signed effect size
         n_a = len(model_a_metrics)
         n_b = len(model_b_metrics)
+        # Normalize U statistic to [-1, 1] range
+        # When U is close to 0, B > A (effect_size positive)
+        # When U is close to n_a*n_b, A > B (effect_size negative)
         effect_size = 1 - (2 * statistic) / (n_a * n_b)
+        # Adjust sign: if median_b > median_a, effect should be positive
+        median_a = np.median(model_a_metrics)
+        median_b = np.median(model_b_metrics)
+        if median_b < median_a:
+            effect_size = -abs(effect_size)
+        else:
+            effect_size = abs(effect_size)
 
         # Calculate confidence interval using bootstrap
         ci_lower, ci_upper = self._bootstrap_ci_for_difference(
@@ -98,7 +122,7 @@ class ABTester:
             statistic=statistic,
             p_value=p_value,
             is_significant=is_significant,
-            alpha=self.alpha,
+            alpha=self.adjusted_alpha,  # Use adjusted alpha in result
             effect_size=effect_size,
             confidence_interval=(ci_lower, ci_upper),
             interpretation=interpretation
@@ -129,8 +153,8 @@ class ABTester:
             equal_var=False  # Welch's t-test
         )
 
-        # Determine significance
-        is_significant = p_value < self.alpha
+        # Determine significance using adjusted alpha
+        is_significant = p_value < self.adjusted_alpha
 
         # Calculate Cohen's d effect size
         effect_size = self._cohens_d(model_a_metrics, model_b_metrics)
@@ -158,7 +182,7 @@ class ABTester:
             statistic=statistic,
             p_value=p_value,
             is_significant=is_significant,
-            alpha=self.alpha,
+            alpha=self.adjusted_alpha,  # Use adjusted alpha in result
             effect_size=effect_size,
             confidence_interval=(ci_lower, ci_upper),
             interpretation=interpretation
@@ -209,15 +233,15 @@ class ABTester:
         # Calculate p-value (two-sided)
         p_value = np.mean(np.abs(permuted_diffs) >= np.abs(observed_diff))
 
-        # Determine significance
-        is_significant = p_value < self.alpha
+        # Determine significance using adjusted alpha
+        is_significant = p_value < self.adjusted_alpha
 
         # Effect size
         effect_size = self._cohens_d(model_a_metrics, model_b_metrics)
 
         # Confidence interval from permutation distribution
-        ci_lower = np.percentile(permuted_diffs, (self.alpha / 2) * 100)
-        ci_upper = np.percentile(permuted_diffs, (1 - self.alpha / 2) * 100)
+        ci_lower = np.percentile(permuted_diffs, (self.adjusted_alpha / 2) * 100)
+        ci_upper = np.percentile(permuted_diffs, (1 - self.adjusted_alpha / 2) * 100)
 
         # Interpretation
         mean_a = np.mean(model_a_metrics)
@@ -236,7 +260,7 @@ class ABTester:
             statistic=observed_diff,
             p_value=p_value,
             is_significant=is_significant,
-            alpha=self.alpha,
+            alpha=self.adjusted_alpha,  # Use adjusted alpha in result
             effect_size=effect_size,
             confidence_interval=(ci_lower, ci_upper),
             interpretation=interpretation
@@ -273,19 +297,19 @@ class ABTester:
 
         bootstrap_diffs = np.array(bootstrap_diffs)
 
-        # P-value: proportion of bootstrap samples where difference crosses zero
+        # P-value: proportion of bootstrap samples as extreme or more extreme than observed
         # (two-sided test)
-        p_value = 2 * min(np.mean(bootstrap_diffs >= 0), np.mean(bootstrap_diffs <= 0))
+        p_value = np.mean(np.abs(bootstrap_diffs) >= np.abs(observed_diff))
 
-        # Determine significance
-        is_significant = p_value < self.alpha
+        # Determine significance using adjusted alpha
+        is_significant = p_value < self.adjusted_alpha
 
         # Effect size
         effect_size = self._cohens_d(model_a_metrics, model_b_metrics)
 
         # Confidence interval
-        ci_lower = np.percentile(bootstrap_diffs, (self.alpha / 2) * 100)
-        ci_upper = np.percentile(bootstrap_diffs, (1 - self.alpha / 2) * 100)
+        ci_lower = np.percentile(bootstrap_diffs, (self.adjusted_alpha / 2) * 100)
+        ci_upper = np.percentile(bootstrap_diffs, (1 - self.adjusted_alpha / 2) * 100)
 
         # Interpretation
         mean_a = np.mean(model_a_metrics)
@@ -304,7 +328,7 @@ class ABTester:
             statistic=observed_diff,
             p_value=p_value,
             is_significant=is_significant,
-            alpha=self.alpha,
+            alpha=self.adjusted_alpha,  # Use adjusted alpha in result
             effect_size=effect_size,
             confidence_interval=(ci_lower, ci_upper),
             interpretation=interpretation
@@ -316,6 +340,10 @@ class ABTester:
         """
         Run multiple statistical tests for comprehensive analysis
 
+        NOTE: Running multiple tests increases the risk of false positives (Type I error).
+        If apply_bonferroni=True was set during initialization, Bonferroni correction
+        will be automatically applied to the significance threshold.
+
         Args:
             model_a_metrics: Array of user-level metrics for Model A
             model_b_metrics: Array of user-level metrics for Model B
@@ -324,6 +352,11 @@ class ABTester:
             Dictionary with results from all tests
         """
         print("\nRunning statistical tests...")
+        if self.apply_bonferroni:
+            print(f"  Using Bonferroni-corrected α = {self.adjusted_alpha:.4f}")
+        else:
+            print(f"  NOTE: Running 4 tests without multiple testing correction.")
+            print(f"  Consider setting apply_bonferroni=True or require multiple tests to agree.")
 
         results = {}
 
@@ -433,8 +466,9 @@ class ABTester:
             boot_b = np.random.choice(b, size=len(b), replace=True)
             bootstrap_diffs.append(np.mean(boot_b) - np.mean(boot_a))
 
-        ci_lower = np.percentile(bootstrap_diffs, (self.alpha / 2) * 100)
-        ci_upper = np.percentile(bootstrap_diffs, (1 - self.alpha / 2) * 100)
+        # Use adjusted alpha for confidence intervals
+        ci_lower = np.percentile(bootstrap_diffs, (self.adjusted_alpha / 2) * 100)
+        ci_upper = np.percentile(bootstrap_diffs, (1 - self.adjusted_alpha / 2) * 100)
 
         return ci_lower, ci_upper
 

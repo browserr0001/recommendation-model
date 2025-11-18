@@ -11,8 +11,8 @@ This framework analyzes production logs to determine if there is a statistically
 - **Hit Detection**: Matches recommendations with user interactions (ratings/watches)
 - **Precision@K Metrics**: Calculates precision at various K values per user
 - **Statistical Testing**: Multiple tests (Mann-Whitney U, Welch's t-test, Permutation, Bootstrap)
-- **Visualization**: Comprehensive charts and plots
 - **Detailed Reporting**: Text and JSON outputs with full statistical analysis
+- **Data Export**: CSV files with hit data and metrics for further analysis
 
 ## Architecture
 
@@ -24,7 +24,6 @@ experimentation_infrastructure/
 ├── hit_detector.py             # Detect hits (matches between recommendations and interactions)
 ├── metrics_calculator.py       # Calculate Precision@K and aggregate metrics
 ├── statistical_tests.py        # Statistical hypothesis testing
-├── visualization.py            # Generate plots and charts
 ├── ab_test_production.py       # Main runner script (entry point)
 └── README.md                   # This file
 ```
@@ -53,9 +52,9 @@ experimentation_infrastructure/
    - Apply multiple testing correction
 
 5. GENERATE OUTPUTS
-   - Create visualizations (PNG files)
    - Generate text report
    - Save JSON results
+   - Export data files (CSV)
 ```
 
 ## Usage
@@ -128,31 +127,6 @@ The framework generates the following files in the output directory:
   - Statistical test results
   - Recommendation and confidence level
 
-### 3. Visualizations
-
-**metric_comparison.png**
-- 4-panel plot:
-  - Distribution histograms
-  - Box plots
-  - Cumulative distribution functions
-  - Summary statistics table
-
-**test_results.png**
-- Statistical test results:
-  - P-value comparison
-  - Effect sizes with confidence intervals
-
-**confidence_intervals.png**
-- Mean values with 95% confidence intervals for both models
-
-**summary_report.png**
-- Comprehensive dashboard with:
-  - Metric comparison bars
-  - Sample size table
-  - Distribution histograms
-  - Statistical test results
-  - Final recommendation box
-
 ## Understanding the Results
 
 ### Key Metrics
@@ -192,6 +166,8 @@ The framework runs 4 different statistical tests:
 4. **Bootstrap Test**
    - Resampling-based
    - Robust confidence intervals
+
+**Important Note on Multiple Testing**: Running 4 tests on the same data increases the risk of false positives (Type I error). If using α=0.05 for each test, consider applying Bonferroni correction (adjusted α=0.0125 for 4 tests) or requiring multiple tests to agree before making decisions.
 
 ### Interpretation
 
@@ -305,7 +281,6 @@ from data_loader import load_all_data
 from hit_detector import HitDetector
 from metrics_calculator import MetricsCalculator
 from statistical_tests import ABTester
-from visualization import ABTestVisualizer
 
 # Load data
 predictions_df, interactions_df = load_all_data(
@@ -333,9 +308,8 @@ test_results = tester.run_all_tests(
     comparison['model_b'].user_level_precisions
 )
 
-# Visualize
-viz = ABTestVisualizer()
-viz.create_summary_report_plot(comparison, test_results, "report.png")
+# Generate report
+# Results are printed to console and can be saved to files
 ```
 
 ## Best Practices

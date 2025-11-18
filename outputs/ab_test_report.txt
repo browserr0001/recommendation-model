@@ -1,7 +1,7 @@
 ================================================================================
 A/B TEST REPORT - PRODUCTION MODEL COMPARISON
 ================================================================================
-Generated: 2025-11-17 11:34:52
+Generated: 2025-11-18 17:43:01
 
 CONFIGURATION
 --------------------------------------------------------------------------------
@@ -44,34 +44,34 @@ STATISTICAL TEST RESULTS
 Mann-Whitney U Test:
   P-value: 0.031235
   Significant: YES ✓
-  Effect Size: -0.0021
-  95% CI: [-0.00020053, -0.00001272]
+  Effect Size: 0.0021
+  95% CI: [-0.00019831, -0.00001032]
   Model A has significantly higher median (0.000000 vs 0.000000, p=0.0312)
 
 Welch's t-test:
   P-value: 0.028656
   Significant: YES ✓
   Effect Size: -0.0078
-  95% CI: [-0.00019839, -0.00001189]
+  95% CI: [-0.00019837, -0.00001009]
   Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0287)
 
 Bootstrap Test:
-  P-value: 0.028400
-  Significant: YES ✓
+  P-value: 0.490300
+  Significant: NO
   Effect Size: -0.0078
-  95% CI: [-0.00019822, -0.00001124]
-  Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0284)
+  95% CI: [-0.00019833, -0.00001211]
+  No significant difference in means (p=0.4903)
 
 Permutation Test:
-  P-value: 0.030300
+  P-value: 0.028700
   Significant: YES ✓
   Effect Size: -0.0078
-  95% CI: [-0.00009607, 0.00009379]
-  Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0303)
+  95% CI: [-0.00009418, 0.00009315]
+  Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0287)
 
 ================================================================================
 RECOMMENDATION
 ================================================================================
 Decision: KEEP MODEL A
 Confidence: HIGH
-Reasoning: Model A performs significantly better (2.64% higher Precision@20). 4/4 statistical tests confirm Model B is inferior.
+Reasoning: Model A performs significantly better (2.64% higher Precision@20). 3/4 statistical tests confirm Model B is inferior.

@@ -52,11 +52,13 @@ class HitDetector:
             (user_interactions['interaction_timestamp'] <= window_end)
         ]
 
+        # Convert to set for O(1) lookup instead of O(n) search
+        # This is much more efficient than checking .values for each movie
+        valid_movie_ids = set(valid_interactions['movie_id'].values)
+
         # Find which recommended movies were interacted with
-        hit_movies = []
-        for movie_id in recommended_movies:
-            if movie_id in valid_interactions['movie_id'].values:
-                hit_movies.append(movie_id)
+        hit_movies = [movie_id for movie_id in recommended_movies
+                      if movie_id in valid_movie_ids]
 
         return len(hit_movies), hit_movies
 
@@ -78,16 +80,35 @@ class HitDetector:
                 - hits_count (number of hits)
                 - hit_movies (list of movie IDs that were hits)
                 - hit_rate (hits_count / 20)
+
+        Raises:
+            ValueError: If DataFrames are empty or missing required columns
         """
+        # Validate inputs
+        if predictions_df.empty:
+            raise ValueError("predictions_df is empty")
+        if interactions_df.empty:
+            raise ValueError("interactions_df is empty")
+
+        required_pred_cols = ['user_id', 'recommendation_timestamp', 'recommended_movies', 'trained_at']
+        missing_pred_cols = [col for col in required_pred_cols if col not in predictions_df.columns]
+        if missing_pred_cols:
+            raise ValueError(f"predictions_df missing required columns: {missing_pred_cols}")
+
+        required_int_cols = ['user_id', 'movie_id', 'interaction_timestamp']
+        missing_int_cols = [col for col in required_int_cols if col not in interactions_df.columns]
+        if missing_int_cols:
+            raise ValueError(f"interactions_df missing required columns: {missing_int_cols}")
+
         print(f"\nDetecting hits with {self.time_window_days}-day time window...")
 
         # Create a dictionary for faster lookup of user interactions
+        # Using groupby is more memory efficient than creating copies
         print("  Indexing interactions by user...")
-        user_interactions_dict = {}
-        for user_id in interactions_df['user_id'].unique():
-            user_interactions_dict[user_id] = interactions_df[
-                interactions_df['user_id'] == user_id
-            ]
+        user_interactions_dict = {
+            user_id: group
+            for user_id, group in interactions_df.groupby('user_id')
+        }
 
         print(f"  Indexed interactions for {len(user_interactions_dict):,} users")
 
@@ -166,21 +187,38 @@ class HitDetector:
 
         Returns:
             DataFrame with added precision@k column
+
+        Raises:
+            ValueError: If hits_df is empty or k is invalid
         """
+        if hits_df.empty:
+            raise ValueError("hits_df is empty")
+        if k <= 0:
+            raise ValueError(f"k must be positive, got {k}")
+
         print(f"\nCalculating Precision@{k}...")
 
         precisions = []
 
         for idx, row in hits_df.iterrows():
             # Get top K recommendations
-            top_k_recommendations = row['recommended_movies'][:k]
+            recommended_movies = row['recommended_movies']
+
+            # Validate we have enough recommendations
+            if len(recommended_movies) < k:
+                # Pad with zeros if fewer than k recommendations
+                top_k_recommendations = recommended_movies
+                effective_k = len(recommended_movies)
+            else:
+                top_k_recommendations = recommended_movies[:k]
+                effective_k = k
 
             # Count how many of the top K were hits
             hits_in_top_k = sum(1 for movie in top_k_recommendations
                                if movie in row['hit_movies'])
 
-            # Calculate precision
-            precision = hits_in_top_k / k if k > 0 else 0
+            # Calculate precision (use effective_k to handle cases with fewer recommendations)
+            precision = hits_in_top_k / effective_k if effective_k > 0 else 0
             precisions.append(precision)
 
         hits_df[f'precision@{k}'] = precisions

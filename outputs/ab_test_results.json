@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-11-17T11:34:52.705082",
+  "timestamp": "2025-11-18T17:43:01.286592",
   "configuration": {
     "predictions_log": "app/logs/predictions_20251115.jsonl",
     "model_a_timestamp": "2025-11-13T22:02:06.510993",
@@ -17,4 +17,86 @@
     "std_precision": 0.013566790700871514,
     "overall_hit_rate": 0.004019044701437288,
     "user_hit_rate": 0.07942803018729568,
-    "total_hits": 
+    "total_hits": 15743
+  },
+  "model_b": {
+    "timestamp": "2025-11-14T23:45:05.172431",
+    "num_predictions": 181855,
+    "num_users": 152761,
+    "mean_precision": 0.003875334673116829,
+    "median_precision": 0.0,
+    "std_precision": 0.013395411067367535,
+    "overall_hit_rate": 0.003916581892166837,
+    "user_hit_rate": 0.0773692238202159,
+    "total_hits": 14245
+  },
+  "comparison": {
+    "precision_difference": -0.00010492747971399454,
+    "precision_percent_change": -2.6361951973281084,
+    "hit_rate_difference": -0.00010246280927045121,
+    "hit_rate_percent_change": -2.549431939231941
+  },
+  "statistical_tests": {
+    "mann_whitney": {
+      "p_value": 0.03123504524429735,
+      "is_significant": true,
+      "effect_size": 0.0020605187047622042,
+      "confidence_interval": [
+        -0.00019830701006135723,
+        -1.0319260324587891e-05
+      ],
+      "interpretation": "Model A has significantly higher median (0.000000 vs 0.000000, p=0.0312)"
+    },
+    "welch_t": {
+      "p_value": 0.028656379843605244,
+      "is_significant": true,
+      "effect_size": -0.007781443628712298,
+      "confidence_interval": [
+        -0.00019837365496319453,
+        -1.0088111488426176e-05
+      ],
+      "interpretation": "Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0287)"
+    },
+    "bootstrap": {
+      "p_value": 0.4903,
+      "is_significant": false,
+      "effect_size": -0.007781443628712298,
+      "confidence_interval": [
+        -0.00019833375438701916,
+        -1.2112261308479785e-05
+      ],
+      "interpretation": "No significant difference in means (p=0.4903)"
+    },
+    "permutation": {
+      "p_value": 0.0287,
+      "is_significant": true,
+      "effect_size": -0.007781443628712298,
+      "confidence_interval": [
+        -9.41848831896843e-05,
+        9.315397608035015e-05
+      ],
+      "interpretation": "Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0287)"
+    }
+  },
+  "normality_tests": {
+    "model_a": {
+      "test": "Kolmogorov-Smirnov",
+      "statistic": 0.5,
+      "p_value": 0.0,
+      "is_normal": false
+    },
+    "model_b": {
+      "test": "Kolmogorov-Smirnov",
+      "statistic": 0.5,
+      "p_value": 0.0,
+      "is_normal": false
+    }
+  },
+  "recommendation": {
+    "decision": "KEEP MODEL A",
+    "confidence": "HIGH",
+    "reasoning": "Model A performs significantly better (2.64% higher Precision@20). 3/4 statistical tests confirm Model B is inferior.",
+    "num_significant_tests": 3,
+    "total_tests": 4
+  }
+}
