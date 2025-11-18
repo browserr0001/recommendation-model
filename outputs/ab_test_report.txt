@@ -1,0 +1,77 @@
+================================================================================
+A/B TEST REPORT - PRODUCTION MODEL COMPARISON
+================================================================================
+Generated: 2025-11-18 17:43:01
+
+CONFIGURATION
+--------------------------------------------------------------------------------
+Model A (Baseline):  2025-11-13T22:02:06.510993
+Model B (Challenger): 2025-11-14T23:45:05.172431
+Time Window: 7 days after recommendation
+Metric: Precision@20
+Significance Level: α = 0.05
+
+SAMPLE SIZES
+--------------------------------------------------------------------------------
+Model A:
+  Predictions: 195,855
+  Unique Users: 163,645
+  Total Hits: 15,743
+
+Model B:
+  Predictions: 181,855
+  Unique Users: 152,761
+  Total Hits: 14,245
+
+PRECISION@20 COMPARISON
+--------------------------------------------------------------------------------
+Model A (Baseline):
+  Mean:   0.00398026
+  Median: 0.00000000
+  Std:    0.01356679
+
+Model B (Challenger):
+  Mean:   0.00387533
+  Median: 0.00000000
+  Std:    0.01339541
+
+Difference (B - A):
+  Absolute: -0.00010493
+  Relative: -2.6362%
+
+STATISTICAL TEST RESULTS
+--------------------------------------------------------------------------------
+Mann-Whitney U Test:
+  P-value: 0.031235
+  Significant: YES ✓
+  Effect Size: 0.0021
+  95% CI: [-0.00019831, -0.00001032]
+  Model A has significantly higher median (0.000000 vs 0.000000, p=0.0312)
+
+Welch's t-test:
+  P-value: 0.028656
+  Significant: YES ✓
+  Effect Size: -0.0078
+  95% CI: [-0.00019837, -0.00001009]
+  Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0287)
+
+Bootstrap Test:
+  P-value: 0.490300
+  Significant: NO
+  Effect Size: -0.0078
+  95% CI: [-0.00019833, -0.00001211]
+  No significant difference in means (p=0.4903)
+
+Permutation Test:
+  P-value: 0.028700
+  Significant: YES ✓
+  Effect Size: -0.0078
+  95% CI: [-0.00009418, 0.00009315]
+  Model A has significantly higher mean (0.003980 vs 0.003875, p=0.0287)
+
+================================================================================
+RECOMMENDATION
+================================================================================
+Decision: KEEP MODEL A
+Confidence: HIGH
+Reasoning: Model A performs significantly better (2.64% higher Precision@20). 3/4 statistical tests confirm Model B is inferior.

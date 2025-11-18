@@ -1,0 +1,12 @@
+Metric,Model A (Baseline),Model B (Challenger)
+Predictions,"195,855","181,855"
+Unique Users,"163,645","152,761"
+Mean Precision@20,0.003980,0.003875
+Median Precision@20,0.000000,0.000000
+Std Precision@20,0.013567,0.013395
+Overall Hit Rate,0.004019,0.003917
+User Hit Rate (%),7.94%,7.74%
+Total Hits,"15,743","14,245"
+Users with Hits,"12,998","11,819"
+25th Percentile Precision@20,0.000000,0.000000
+75th Percentile Precision@20,0.000000,0.000000
