@@ -1,0 +1,58 @@
+================================================================================
+FAIRNESS EVALUATION REPORT: Gender-Based Recall@20 Disparity
+================================================================================
+
+Prediction Log: app/logs/predictions_20251201.jsonl
+Evaluation Date: 2025-12-05 19:26:32
+Metric: Recall@20
+Fairness Threshold: 5.0%
+
+================================================================================
+RESULTS BY GENDER
+================================================================================
+
+Men:
+  Sample Size:           619,657 users
+  Mean Recall@20:        0.0775 (7.75%)
+  Median Recall@20:      0.0000
+  Std Deviation:         0.2661
+  Min / Max:             0.0000 / 1.0000
+  25th / 75th percentile: 0.0000 / 0.0000
+  Users w/ Interactions: 103,062 (16.6%)
+  Avg Relevant Items:    0.17
+  Avg Hits:              0.08
+
+Women:
+  Sample Size:           127,398 users
+  Mean Recall@20:        0.0743 (7.43%)
+  Median Recall@20:      0.0000
+  Std Deviation:         0.2612
+  Min / Max:             0.0000 / 1.0000
+  25th / 75th percentile: 0.0000 / 0.0000
+  Users w/ Interactions: 21,315 (16.7%)
+  Avg Relevant Items:    0.17
+  Avg Hits:              0.08
+
+================================================================================
+FAIRNESS EVALUATION
+================================================================================
+
+Men Recall@20:          0.0775 (7.75%)
+Women Recall@20:        0.0743 (7.43%)
+
+Absolute Disparity:     0.0031 (0.31%)
+Relative Disparity:     0.0404 (4.04%)
+Threshold:              0.0500 (5.00%)
+
+Statistical Test (Welch's t-test):
+  t-statistic: 3.8812
+  p-value: 0.0001
+  Difference is statistically significant (p=0.0001)
+
+================================================================================
+VERDICT: PASS ✓
+================================================================================
+
+✓ The model meets the fairness requirement.
+  The gender-based disparity in Recall@20 is 0.31%,
+  which is below the 5.0% threshold.

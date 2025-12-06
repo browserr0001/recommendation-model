@@ -1,0 +1,51 @@
+{
+  "metrics": {
+    "M": {
+      "n_users": 619657,
+      "mean_recall": 0.07745978823768633,
+      "median_recall": 0.0,
+      "std_recall": 0.2660986525372776,
+      "min_recall": 0.0,
+      "max_recall": 1.0,
+      "p25_recall": 0.0,
+      "p75_recall": 0.0,
+      "users_with_interactions": 103062,
+      "mean_relevant_items": 0.1716982136891861,
+      "mean_hits": 0.07910343948345618
+    },
+    "F": {
+      "n_users": 127398,
+      "mean_recall": 0.0743313605132472,
+      "median_recall": 0.0,
+      "std_recall": 0.2611808225681749,
+      "min_recall": 0.0,
+      "max_recall": 1.0,
+      "p25_recall": 0.0,
+      "p75_recall": 0.0,
+      "users_with_interactions": 21315,
+      "mean_relevant_items": 0.1723025479206895,
+      "mean_hits": 0.07571547434025652
+    }
+  },
+  "fairness_results": {
+    "recall_men": 0.07745978823768633,
+    "recall_women": 0.0743313605132472,
+    "absolute_disparity": 0.0031284277244391367,
+    "relative_disparity": 0.04038776500188094,
+    "threshold": 0.05,
+    "passes_fairness": true,
+    "statistical_test": {
+      "t_statistic": 3.8811678531543614,
+      "p_value": 0.0001039919186179599,
+      "is_significant": true,
+      "interpretation": "Difference is statistically significant (p=0.0001)"
+    },
+    "verdict": "PASS \u2713"
+  },
+  "configuration": {
+    "k": 20,
+    "threshold": 0.05,
+    "prediction_log": "app/logs/predictions_20251201.jsonl"
+  },
+  "timestamp": "2025-12-05T19:26:32.209577"
+}
