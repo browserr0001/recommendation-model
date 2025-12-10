@@ -1,31 +1,40 @@
 from flask import Flask, Response
 import os
-import itertools
 import requests
 
 app = Flask(__name__)
 
 # Comma-separated backend URLs such as "http://backend-a:5001,http://backend-b:5001"
 BACKENDS = [b for b in os.environ.get("BACKENDS", "http://backend-a:5001").split(",") if b]
+# print(BACKENDS, flush=True)
 
-# Round-robin iterator over the backend list
-server_pool = itertools.cycle(BACKENDS)
-
-
-def choose_backend() -> str:
+def choose_backend(userid: str) -> str:
     """
-    Pure round-robin:
-      - First request -> first backend
-      - Second request -> second backend
-      - Third request -> first backend
-      ...
+    Route based on user ID:
+      - Odd user IDs -> first backend (backend-a)
+      - Even user IDs -> second backend (backend-b)
     """
-    return next(server_pool)
+    try:
+        # Extract numeric part if userid contains "userid=" prefix
+        userid_str = userid.split('=')[-1] if '=' in userid else userid
+        user_id_int = int(userid_str)
+        # Odd goes to backend-a (index 0), even goes to backend-b (index 1)
+        backend_index = 0 if user_id_int % 2 == 1 else 1
+        # Handle case where only one backend is configured
+        if backend_index >= len(BACKENDS):
+            backend_index = 0
+
+        print(f"Routing user_id {user_id_int} to backend index {backend_index} ({BACKENDS[backend_index]})", flush=True)
+        return BACKENDS[backend_index]
+    except (ValueError, IndexError) as e:
+        # Fallback to first backend if userid is not a valid integer
+        print(f"Error choosing backend for userid '{userid}': {e}", flush=True)
+        return BACKENDS[0] if BACKENDS else "http://backend-a:5001"
 
 
 @app.get("/recommend/<userid>")
 def recommend(userid):
-    backend = choose_backend()
+    backend = choose_backend(userid)
 
     try:
         resp = requests.get(f"{backend}/recommend/{userid}", timeout=0.55)
@@ -41,7 +50,7 @@ def recommend(userid):
 
 @app.get("/metrics")
 def model_info():
-    backend = choose_backend()
+    backend = BACKENDS[0] if BACKENDS else "http://backend-a:5001"
     try:
         resp = requests.get(f"{backend}/metrics", timeout=0.55)
     except requests.RequestException as e:
@@ -55,7 +64,7 @@ def model_info():
 
 @app.get("/api")
 def api_proxy():
-    backend = choose_backend()
+    backend = BACKENDS[0] if BACKENDS else "http://backend-a:5001"
     try:
         resp = requests.get(f"{backend}/api", timeout=0.6)
     except requests.RequestException as e:
