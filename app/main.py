@@ -44,6 +44,7 @@ def log_prediction(user_id, recommendations, prediction_metadata, inference_time
     log_entry = {
         'timestamp': datetime.utcnow().isoformat(),
         'user_id': user_id,
+        'backend_name': BACKEND_NAME,
         'recommendations': recommendations,
         'inference_time': inference_time,
         'model_metadata': prediction_metadata, 
