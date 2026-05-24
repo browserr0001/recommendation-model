@@ -1,9 +1,6 @@
 # 🎬 Movie Recommendation Service
 > End-to-end ML recommendation system built and operated in production for a 1M+ user streaming platform.  
-> CMU 11-695/17-445/17-645/17-745 — Machine Learning in Production | Team 8 (Jurassic Spark)
 
-**Team:** Lucy Sun · Sean Huo · Shuvam Mitra · Sumeda Puja · Brian Chiang  
-**Mentor:** Kaushik Koirala
 
 ---
 
